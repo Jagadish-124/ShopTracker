@@ -1,0 +1,22 @@
+{
+    "name": "Shop Tracker",
+    "short_name": "ShopTracker",
+    "description": "Smart shop inventory and sales tracker",
+    "start_url": "./index.html",
+    "display": "standalone",
+    "background_color": "#0f1117",
+    "theme_color": "#1D9E75",
+    "orientation": "portrait-primary",
+    "icons": [
+      {
+        "src": "icon-192.png",
+        "sizes": "192x192",
+        "type": "image/png"
+      },
+      {
+        "src": "icon-512.png",
+        "sizes": "512x512",
+        "type": "image/png"
+      }
+    ]
+  }

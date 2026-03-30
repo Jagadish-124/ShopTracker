@@ -1,0 +1,311 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <link rel="manifest" href="manifest.json" />
+  <meta name="theme-color" content="#1D9E75" />
+  <meta name="mobile-web-app-capable" content="yes" />
+  <meta name="apple-mobile-web-app-capable" content="yes" />
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+  <meta name="apple-mobile-web-app-title" content="Shop Tracker" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <title>Shop Tracker</title>
+  <link rel="stylesheet" href="style.css" />
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf-autotable/3.6.0/jspdf.plugin.autotable.min.js"></script>
+</head>
+<body>
+
+  <!-- Header -->
+  <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:28px;">
+    <h1>Shop <span>Tracker</span></h1>
+    <div style="display:flex;gap:8px;align-items:center;">
+      <select onchange="setCurrency(this.value)" id="currency-select"
+        style="height:36px;padding:0 10px;border:1px solid var(--card-border);border-radius:8px;background:var(--input-bg);color:var(--text);font-size:13px;cursor:pointer;outline:none;">
+        <option value="₹">₹ INR</option>
+        <option value="$">$ USD</option>
+        <option value="€">€ EUR</option>
+        <option value="£">£ GBP</option>
+        <option value="¥">¥ JPY</option>
+      </select>
+      <button onclick="backupData()" class="export-btn" style="border-color:rgba(234,179,8,0.4);color:#eab308;">
+        💾 Backup
+      </button>
+      <label class="export-btn" style="border-color:rgba(234,179,8,0.4);color:#eab308;cursor:pointer;">
+        📂 Restore
+        <input type="file" accept=".json" onchange="restoreData(event)" style="display:none;" />
+      </label>
+      <button onclick="toggleTheme()" id="theme-btn" class="export-btn" style="font-size:16px;">🌙</button>
+      <button onclick="exportCSV()" class="export-btn csv-btn">⬇ Export CSV</button>
+      <button onclick="exportPDF()" class="export-btn pdf-btn">⬇ Export PDF</button>
+      <button onclick="clearAllData()" class="clear-btn">🗑 Clear All Data</button>
+    </div>
+  </div>
+
+  <!-- Restock Alert Banner -->
+  <div id="restock-banner" style="display:none;">
+    <div class="restock-alert">
+      <span class="restock-icon">⚠️</span>
+      <div>
+        <div class="restock-title">Restock Needed</div>
+        <div id="restock-list" class="restock-items"></div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Insight Cards -->
+  <div class="summary">
+    <div class="card income-card">
+      <p>Total Revenue</p>
+      <h2 id="total-income">₹0</h2>
+      <div id="revenue-trend" style="font-size:12px;margin-top:6px;font-weight:600;"></div>
+    </div>
+    <div class="card expense-card">
+      <p>Total Cost</p>
+      <h2 id="total-expense">₹0</h2>
+    </div>
+    <div class="card profit-card">
+      <p>Gross Profit</p>
+      <h2 id="net-profit">₹0</h2>
+    </div>
+    <div class="card" style="border-color:rgba(124,106,247,0.3);">
+      <p>Sales Profit</p>
+      <h2 id="total-profit" style="color:#7c6af7;">₹0</h2>
+    </div>
+  </div>
+
+  <!-- Smart Insights Banner -->
+  <div class="insights-grid">
+    <div class="insight-card">
+      <div class="insight-header">
+        <span class="insight-icon" style="background:rgba(29,158,117,0.12);">📊</span>
+        <span class="insight-title">Today's Summary</span>
+      </div>
+      <div class="insight-stats">
+        <div class="insight-stat">
+          <div class="insight-stat-label">Revenue</div>
+          <div class="insight-stat-value" id="summary-rev">₹0</div>
+        </div>
+        <div class="insight-stat">
+          <div class="insight-stat-label">Profit</div>
+          <div class="insight-stat-value" id="summary-profit">₹0</div>
+        </div>
+        <div class="insight-stat">
+          <div class="insight-stat-label">Items Sold</div>
+          <div class="insight-stat-value" id="summary-items">0</div>
+        </div>
+      </div>
+    </div>
+    <div class="insight-card">
+      <div class="insight-header">
+        <span class="insight-icon" style="background:rgba(234,179,8,0.12);">🏆</span>
+        <span class="insight-title">Best Selling Day</span>
+      </div>
+      <div id="best-day" style="font-size:15px;font-weight:700;color:var(--text);margin-top:12px;">
+        Not enough data yet
+      </div>
+      <div style="font-size:12px;color:var(--muted);margin-top:6px;">
+        Based on all time transactions
+      </div>
+    </div>
+    <div class="insight-card">
+      <div class="insight-header">
+        <span class="insight-icon" style="background:rgba(216,90,48,0.12);">⚠️</span>
+        <span class="insight-title">Low Margin Products</span>
+      </div>
+      <div id="margin-warnings" style="margin-top:12px;display:flex;flex-wrap:wrap;gap:8px;">
+        <span style="color:#1D9E75;font-size:13px;">All products have healthy margins.</span>
+      </div>
+      <div style="font-size:12px;color:var(--muted);margin-top:8px;">
+        Products with margin below 10%
+      </div>
+    </div>
+  </div>
+
+  <!-- Dashboard Insights -->
+  <div class="dashboard-grid">
+    <div class="kpi-grid">
+      <div class="kpi-card">
+        <div class="kpi-icon" style="background:rgba(29,158,117,0.12);">📦</div>
+        <div>
+          <div class="kpi-label">Items Sold Today</div>
+          <div class="kpi-value" id="kpi-sold">0</div>
+        </div>
+      </div>
+      <div class="kpi-card">
+        <div class="kpi-icon" style="background:rgba(124,106,247,0.12);">🏆</div>
+        <div>
+          <div class="kpi-label">Top Product</div>
+          <div class="kpi-value" id="kpi-top" style="font-size:16px;">—</div>
+        </div>
+      </div>
+      <div class="kpi-card">
+        <div class="kpi-icon" style="background:rgba(216,90,48,0.12);">💰</div>
+        <div>
+          <div class="kpi-label">Revenue Today</div>
+          <div class="kpi-value" id="kpi-revenue">₹0</div>
+        </div>
+      </div>
+      <div class="kpi-card">
+        <div class="kpi-icon" style="background:rgba(234,179,8,0.12);">📈</div>
+        <div>
+          <div class="kpi-label">Profit Today</div>
+          <div class="kpi-value" id="kpi-profit">₹0</div>
+        </div>
+      </div>
+    </div>
+    <div class="chart-card">
+      <div class="chart-label">Revenue — Last 7 Days</div>
+      <div style="position:relative;height:220px;">
+        <canvas id="barChart"></canvas>
+      </div>
+      <div class="bar-legend">
+        <span><i style="background:#1D9E75;"></i> Revenue</span>
+        <span><i style="background:#7c6af7;"></i> Profit</span>
+      </div>
+    </div>
+    <div class="chart-card">
+      <div class="chart-label">Revenue by Product</div>
+      <div style="position:relative;height:220px;">
+        <canvas id="doughnutChart"></canvas>
+      </div>
+      <div id="donut-legend" style="margin-top:12px;display:flex;flex-wrap:wrap;gap:8px;"></div>
+    </div>
+  </div>
+
+  <!-- Products Section -->
+  <div class="section-title">Products</div>
+  <div class="form-section">
+    <div class="form-grid" style="grid-template-columns: 2fr 1fr 1fr 1fr 1fr 1fr;">
+      <div class="form-group">
+        <label>Product Name</label>
+        <input type="text" id="prod-name" placeholder="e.g. Rice 1kg" />
+      </div>
+      <div class="form-group">
+        <label>Category</label>
+        <input type="text" id="prod-category" placeholder="e.g. Grains" />
+      </div>
+      <div class="form-group">
+        <label>Cost Price</label>
+        <input type="number" id="prod-cost" placeholder="0" />
+      </div>
+      <div class="form-group">
+        <label>Selling Price</label>
+        <input type="number" id="prod-price" placeholder="0" />
+      </div>
+      <div class="form-group">
+        <label>Stock (units)</label>
+        <input type="number" id="prod-stock" placeholder="0" />
+      </div>
+      <div class="form-group">
+        <label>Min Stock Alert</label>
+        <input type="number" id="prod-min" placeholder="e.g. 5" />
+      </div>
+    </div>
+    <button onclick="addProduct()" style="margin-top:14px;">+ Add Product</button>
+  </div>
+
+  <!-- Search Bar -->
+  <div class="search-bar">
+    <div class="search-group">
+      <span class="search-icon">🔍</span>
+      <input type="text" id="search-input" placeholder="Search products..." oninput="setSearch(this.value)" />
+    </div>
+    <select id="filter-category" onchange="setCategory(this.value)">
+      <option value="all">All Categories</option>
+    </select>
+    <select onchange="setSort(this.value)">
+      <option value="none">Sort by...</option>
+      <option value="stock-asc">Stock: Low to High</option>
+      <option value="stock-desc">Stock: High to Low</option>
+      <option value="price-asc">Price: Low to High</option>
+      <option value="price-desc">Price: High to Low</option>
+    </select>
+  </div>
+
+  <!-- Products Table -->
+  <div class="table-wrap" style="margin-bottom:32px;">
+    <table>
+      <thead>
+        <tr>
+          <th>Product</th>
+          <th>Category</th>
+          <th>Cost Price</th>
+          <th>Sell Price</th>
+          <th>Margin</th>
+          <th>Stock</th>
+          <th>Min Stock</th>
+          <th>Sell</th>
+          <th>Restock</th>
+          <th>Delete</th>
+        </tr>
+      </thead>
+      <tbody id="prod-body"></tbody>
+    </table>
+  </div>
+
+  <!-- Dead Stock Section -->
+  <div class="section-title" style="margin-top:32px;">
+    Dead Stock
+    <span id="dead-count" class="dead-count-badge">0</span>
+  </div>
+  <div class="dead-stock-controls">
+    <span style="font-size:13px;color:var(--muted);">No sales in</span>
+    <input type="range" min="1" max="30" value="7" step="1"
+      oninput="setDeadStockDays(this.value)" style="width:160px;" />
+    <span id="days-label" style="font-size:13px;font-weight:700;color:var(--text);min-width:60px;">7 days</span>
+  </div>
+  <div class="table-wrap" style="margin-bottom:32px;">
+    <table>
+      <thead>
+        <tr>
+          <th>Product</th>
+          <th>Last Sale</th>
+          <th>Stock</th>
+          <th>Idle Value</th>
+          <th>Action</th>
+        </tr>
+      </thead>
+      <tbody id="dead-body"></tbody>
+    </table>
+  </div>
+
+  <!-- Restock History -->
+  <div class="section-title" style="margin-top:32px;">Restock History</div>
+  <div class="table-wrap" style="margin-bottom:32px;">
+    <table>
+      <thead>
+        <tr>
+          <th>Date</th>
+          <th>Product</th>
+          <th>Qty Added</th>
+          <th>Cost Per Unit</th>
+          <th>Total Paid</th>
+        </tr>
+      </thead>
+      <tbody id="restock-body"></tbody>
+    </table>
+  </div>
+
+  <!-- Sales Transactions -->
+  <div class="section-title">Sales Transactions</div>
+  <div class="table-wrap" style="margin-bottom:32px;">
+    <table>
+      <thead>
+        <tr>
+          <th>Date</th>
+          <th>Product</th>
+          <th>Qty</th>
+          <th>Unit Price</th>
+          <th>Total</th>
+          <th>Profit</th>
+        </tr>
+      </thead>
+      <tbody id="txn-body"></tbody>
+    </table>
+  </div>
+
+  <script src="script.js"></script>
+</body>
+</html>
