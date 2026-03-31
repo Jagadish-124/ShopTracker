@@ -78,17 +78,17 @@ function addProduct() {
   const minStock = parseInt(document.getElementById('prod-min').value) || 5;
 
   if (!name || isNaN(cost) || cost <= 0 || isNaN(price) || price <= 0 || isNaN(stock) || stock < 0) {
-    alert('Fill all product fields correctly.');
-    return;
+    toast('Fill all fields correctly', 'error'); return;
   }
   if (cost >= price) {
-    alert('Selling price must be greater than cost price.');
-    return;
+    toast('Selling price must be greater than cost price', 'error'); return;
   }
+
   products.push({ id: nextProdId++, name, category, cost, price, stock, minStock });
   saveProducts();
   clearProductForm();
   render();
+  toast(`✓ ${name} added`);
 }
 
 function deleteProduct(id) {
