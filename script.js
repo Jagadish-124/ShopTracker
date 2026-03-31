@@ -149,9 +149,11 @@ function saveEdit(id) {
 }
 
 function sellProduct(id) {
-  const qtyInput = document.getElementById('qty-' + id);
-  const qty      = parseInt(qtyInput.value);
-  const product  = products.find(p => p.id === id);
+  const qtyInput  = document.getElementById('qty-' + id);
+  const noteInput = document.getElementById('note-' + id);
+  const qty       = parseInt(qtyInput.value);
+  const note      = noteInput ? noteInput.value.trim() : '';
+  const product   = products.find(p => p.id === id);
 
   if (!product) return;
   if (isNaN(qty) || qty <= 0) { alert('Enter a valid quantity.'); return; }
@@ -173,10 +175,12 @@ function sellProduct(id) {
     price: product.price,
     total,
     totalCost,
-    profit
+    profit,
+    note
   });
 
-  qtyInput.value = '';
+  qtyInput.value  = '';
+  if (noteInput) noteInput.value = '';
   saveProducts();
   render();
 }
@@ -313,9 +317,11 @@ function renderProducts() {
         <td>
           <input type="number" id="qty-${p.id}" placeholder="Qty" min="1" max="${p.stock}"
             style="width:60px;height:32px;padding:0 8px;border-radius:8px;border:1px solid var(--card-border);background:var(--input-bg);color:var(--text);font-size:13px;" />
+          <input type="text" id="note-${p.id}" placeholder="Note (optional)"
+           style="width:120px;height:32px;padding:0 8px;border-radius:8px;border:1px solid var(--card-border);background:var(--input-bg);color:var(--text);font-size:13px;margin-left:4px;" />
           <button class="sell-btn" onclick="sellProduct(${p.id})" ${isEmpty ? 'disabled' : ''}>
             ${isEmpty ? 'Out of stock' : 'Sell'}
-          </button>
+        </button>
         </td>
         <td>
           <input type="number" id="restock-qty-${p.id}" placeholder="Qty"
@@ -355,7 +361,10 @@ function renderTransactions() {
   tbody.innerHTML = filtered.map(t => `
     <tr>
       <td>${t.date}</td>
-      <td>${t.product}</td>
+      <td>
+        <div style="font-weight:600;">${t.product}</div>
+        ${t.note ? `<div style="font-size:12px;color:var(--muted);margin-top:2px;">📝 ${t.note}</div>` : ''}
+      </td>
       <td>${t.qty}</td>
       <td>${fmt(t.price)}</td>
       <td style="color:#1D9E75;font-weight:700;">+${fmt(t.total)}</td>
