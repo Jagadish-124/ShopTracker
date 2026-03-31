@@ -1008,6 +1008,42 @@ function renderGoal() {
   if (inputEl && !inputEl.value) inputEl.value = dailyGoal || '';
 }
 
+function showConfirm(message, onYes) {
+  const existing = document.getElementById('confirm-modal');
+  if (existing) existing.remove();
+
+  const overlay = document.createElement('div');
+  overlay.id    = 'confirm-modal';
+  overlay.style.cssText = `
+    position: fixed; inset: 0;
+    background: rgba(0,0,0,0.6);
+    display: flex; align-items: center; justify-content: center;
+    z-index: 9998;
+  `;
+
+  overlay.innerHTML = `
+    <div style="background:var(--card-bg);border:1px solid var(--card-border);border-radius:16px;padding:28px 32px;max-width:400px;width:90%;text-align:center;">
+      <div style="font-size:16px;font-weight:600;color:var(--text);margin-bottom:20px;">${message}</div>
+      <div style="display:flex;gap:10px;justify-content:center;">
+        <button onclick="document.getElementById('confirm-modal').remove()"
+          style="padding:10px 24px;border-radius:8px;border:1px solid var(--card-border);background:transparent;color:var(--muted);font-size:14px;font-weight:600;cursor:pointer;">
+          Cancel
+        </button>
+        <button id="confirm-yes"
+          style="padding:10px 24px;border-radius:8px;border:none;background:#D85A30;color:#fff;font-size:14px;font-weight:600;cursor:pointer;">
+          Yes, delete
+        </button>
+      </div>
+    </div>
+  `;
+
+  document.body.appendChild(overlay);
+  document.getElementById('confirm-yes').onclick = () => {
+    overlay.remove();
+    onYes();
+  };
+}
+
 if ('serviceWorker' in navigator) {
   navigator.serviceWorker.register('./sw.js')
     .then(() => console.log('Service worker registered'))
