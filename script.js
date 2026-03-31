@@ -157,8 +157,8 @@ function sellProduct(id) {
   const product   = products.find(p => p.id === id);
 
   if (!product) return;
-  if (isNaN(qty) || qty <= 0) { alert('Enter a valid quantity.'); return; }
-  if (qty > product.stock)    { alert('Not enough stock.'); return; }
+  if (isNaN(qty) || qty <= 0) { toast('Enter a valid quantity', 'error'); return; }
+  if (qty > product.stock)    { toast('Not enough stock', 'error'); return; }
 
   const total     = qty * product.price;
   const totalCost = qty * product.cost;
@@ -169,21 +169,16 @@ function sellProduct(id) {
 
   transactions.unshift({
     id: Date.now(),
-    date,
-    product: product.name,
-    qty,
-    cost: product.cost,
-    price: product.price,
-    total,
-    totalCost,
-    profit,
-    note
+    date, product: product.name,
+    qty, cost: product.cost, price: product.price,
+    total, totalCost, profit, note
   });
 
   qtyInput.value  = '';
   if (noteInput) noteInput.value = '';
   saveProducts();
   render();
+  toast(`✓ Sold ${qty}x ${product.name} for ${fmt(total)}`);
 }
 
 function saveProducts() {
