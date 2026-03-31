@@ -366,6 +366,7 @@ function renderTransactions() {
       <td>${fmt(t.price)}</td>
       <td style="color:#1D9E75;font-weight:700;">+${fmt(t.total)}</td>
       <td style="color:#7c6af7;font-weight:700;">+${fmt(t.profit)}</td>
+      <td><button onclick="deleteTransaction(${t.id})">✕</button></td>
     </tr>
   `).join('');
 

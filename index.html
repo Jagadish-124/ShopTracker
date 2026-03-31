@@ -54,6 +54,24 @@
     </div>
   </div>
 
+  <!-- Profit Goal Tracker -->
+<div class="goal-tracker">
+  <div class="goal-header">
+    <span class="goal-title">📊 Daily Profit Goal</span>
+    <div style="display:flex;gap:8px;align-items:center;">
+      <input type="number" id="goal-input" placeholder="Set goal..."
+        style="height:32px;width:130px;padding:0 10px;border:1px solid var(--card-border);border-radius:8px;background:var(--input-bg);color:var(--text);font-size:13px;outline:none;" />
+      <button onclick="setGoal()" class="sell-btn" style="height:32px;">Set</button>
+    </div>
+  </div>
+  <div class="goal-bar-track">
+    <div id="goal-bar" class="goal-bar-fill"></div>
+  </div>
+  <div id="goal-label" style="font-size:13px;color:var(--muted);margin-top:8px;">
+    Set a daily profit goal above
+  </div>
+</div>
+
   <!-- Insight Cards -->
   <div class="summary">
     <div class="card income-card">
@@ -398,6 +416,7 @@
           <th>Unit Price</th>
           <th>Total</th>
           <th>Profit</th>
+          <th>Delete</th>
         </tr>
       </thead>
       <tbody id="txn-body"></tbody>
