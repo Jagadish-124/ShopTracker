@@ -866,6 +866,69 @@ function renderCategoryReport() {
   }).join('');
 }
 
+// Feature 8 — Break-even Calculator
+function renderBreakEven() {
+  const tbody = document.getElementById('breakeven-body');
+  if (!products.length) {
+    tbody.innerHTML = '<tr><td colspan="5" class="empty">No products yet.</td></tr>';
+    return;
+  }
+
+  // Get today's restock costs
+  const today        = new Date().toISOString().split('T')[0];
+  const todayRestock = restockHistory.filter(r => r.date === today);
+
+  // Total fixed cost today (restock spending)
+  const totalRestockToday = todayRestock.reduce((s, r) => s + r.total, 0);
+
+  tbody.innerHTML = products.map(p => {
+    // Units needed to break even on restock cost
+    const profitPerUnit  = p.price - p.cost;
+    const restockForThis = todayRestock.filter(r => r.product === p.name).reduce((s, r) => s + r.total, 0);
+    const unitsNeeded    = profitPerUnit > 0 ? Math.ceil(restockForThis / profitPerUnit) : '—';
+
+    // Units sold today for this product
+    const soldToday = transactions
+      .filter(t => t.date === today && t.product === p.name)
+      .reduce((s, t) => s + t.qty, 0);
+
+    const status = unitsNeeded === '—'
+      ? '<span class="badge expense">No margin</span>'
+      : soldToday >= unitsNeeded
+      ? '<span class="badge income">✓ Break-even reached</span>'
+      : `<span class="badge warning">${unitsNeeded - soldToday} more to go</span>`;
+
+    return `
+      <tr>
+        <td style="font-weight:600;">${p.name}</td>
+        <td>${fmt(p.price - p.cost)} per unit</td>
+        <td>${fmt(restockForThis)}</td>
+        <td style="font-weight:700;">${unitsNeeded === '—' ? '—' : unitsNeeded + ' units'}</td>
+        <td>${status}</td>
+      </tr>
+    `;
+  }).join('');
+
+  // Overall break-even
+  const totalProfitToday = transactions
+    .filter(t => t.date === today)
+    .reduce((s, t) => s + t.profit, 0);
+
+  const overallEl = document.getElementById('breakeven-overall');
+  if (overallEl) {
+    if (totalRestockToday === 0) {
+      overallEl.textContent = 'No restock costs today.';
+      overallEl.style.color = 'var(--muted)';
+    } else if (totalProfitToday >= totalRestockToday) {
+      overallEl.textContent = `✓ Break-even reached — ${fmt(totalProfitToday - totalRestockToday)} surplus today`;
+      overallEl.style.color = '#1D9E75';
+    } else {
+      overallEl.textContent = `Need ${fmt(totalRestockToday - totalProfitToday)} more profit to break even today`;
+      overallEl.style.color = '#D85A30';
+    }
+  }
+}
+
 if ('serviceWorker' in navigator) {
   navigator.serviceWorker.register('./sw.js')
     .then(() => console.log('Service worker registered'))
