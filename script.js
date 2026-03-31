@@ -6,6 +6,7 @@ let filterCategory = 'all';
 let sortBy = 'none';
 let nextProdId = Date.now() + 1;
 let deadStockDays = 7;
+let skuCounter = parseInt(localStorage.getItem('skuCounter')) || 1;
 let reviewedProducts = JSON.parse(localStorage.getItem('reviewed')) || [];
 let restockHistory = JSON.parse(localStorage.getItem('restockHistory')) || [];
 let barChart = null;
@@ -73,6 +74,63 @@ function renderStats() {
 function addProduct() {
   const name     = document.getElementById('prod-name').value.trim();
   const category = document.getElementById('prod-category').value.trim() || 'Uncategorized';
+  const brand    = document.getElementById('prod-brand').value.trim() || '—';
+  const variant  = document.getElementById('prod-variant').value.trim() || '—';
+  const cost     = parseFloat(document.getElementById('prod-cost').value);
+  const price    = parseFloat(document.getElementById('prod-price').value);
+  const stock    = parseInt(document.getElementById('prod-stock').value);
+  const minStock = parseInt(document.getElementById('prod-min').value) || 5;
+  const skuInput = document.getElementById('prod-sku').value.trim();
+  const sku      = skuInput || `SKU-${String(skuCounter).padStart(3, '0')}`;
+
+  if (!name || isNaN(cost) || cost <= 0 || isNaN(price) || price <= 0 || isNaN(stock) || stock < 0) {
+    toast('Fill all fields correctly', 'error'); return;
+  }
+  if (cost >= price) {
+    toast('Selling price must be greater than cost price', 'error'); return;
+  }
+
+  products.push({ id: nextProdId++, sku, name, brand, variant, category, cost, price, stock, minStock });
+  skuCounter++;
+  localStorage.setItem('skuCounter', skuCounter);
+  saveProducts();
+  clearProductForm();
+  render();
+  toast(`✓ ${name} added (${sku})`);
+}
+function deleteProduct(id) {
+  products = products.filter(p => p.id !== id);
+  saveProducts();
+  render();
+}
+function editProduct(id) {
+  const p = products.find(p => p.id === id);
+  if (!p) return;
+
+  document.getElementById('prod-name').value     = p.name;
+  document.getElementById('prod-category').value = p.category || '';
+  document.getElementById('prod-brand').value    = p.brand || '';
+  document.getElementById('prod-variant').value  = p.variant || '';
+  document.getElementById('prod-sku').value      = p.sku || '';
+  document.getElementById('prod-cost').value     = p.cost;
+  document.getElementById('prod-price').value    = p.price;
+  document.getElementById('prod-stock').value    = p.stock;
+  document.getElementById('prod-min').value      = p.minStock;
+
+  const btn = document.querySelector('.form-section button');
+  btn.textContent = '💾 Save Edit';
+  btn.onclick     = () => saveEdit(id);
+}
+
+function saveEdit(id) {
+  const p = products.find(p => p.id === id);
+  if (!p) return;
+
+  const name     = document.getElementById('prod-name').value.trim();
+  const category = document.getElementById('prod-category').value.trim() || 'Uncategorized';
+  const brand    = document.getElementById('prod-brand').value.trim() || '—';
+  const variant  = document.getElementById('prod-variant').value.trim() || '—';
+  const sku      = document.getElementById('prod-sku').value.trim() || p.sku;
   const cost     = parseFloat(document.getElementById('prod-cost').value);
   const price    = parseFloat(document.getElementById('prod-price').value);
   const stock    = parseInt(document.getElementById('prod-stock').value);
@@ -85,69 +143,19 @@ function addProduct() {
     toast('Selling price must be greater than cost price', 'error'); return;
   }
 
-  products.push({ id: nextProdId++, name, category, cost, price, stock, minStock });
-  saveProducts();
-  clearProductForm();
-  render();
-  toast(`✓ ${name} added`);
-}
-
-function deleteProduct(id) {
-  products = products.filter(p => p.id !== id);
-  saveProducts();
-  render();
-}
-function editProduct(id) {
-  const p = products.find(p => p.id === id);
-  if (!p) return;
-
-  document.getElementById('prod-name').value     = p.name;
-  document.getElementById('prod-category').value = p.category || '';
-  document.getElementById('prod-cost').value     = p.cost;
-  document.getElementById('prod-price').value    = p.price;
-  document.getElementById('prod-stock').value    = p.stock;
-  document.getElementById('prod-min').value      = p.minStock;
-
-  // Change button to Save Edit
-  const btn = document.querySelector('.form-section button');
-  btn.textContent  = '💾 Save Edit';
-  btn.onclick      = () => saveEdit(id);
-}
-
-function saveEdit(id) {
-  const p = products.find(p => p.id === id);
-  if (!p) return;
-
-  const name     = document.getElementById('prod-name').value.trim();
-  const category = document.getElementById('prod-category').value.trim() || 'Uncategorized';
-  const cost     = parseFloat(document.getElementById('prod-cost').value);
-  const price    = parseFloat(document.getElementById('prod-price').value);
-  const stock    = parseInt(document.getElementById('prod-stock').value);
-  const minStock = parseInt(document.getElementById('prod-min').value) || 5;
-
-  if (!name || isNaN(cost) || cost <= 0 || isNaN(price) || price <= 0 || isNaN(stock) || stock < 0) {
-    alert('Fill all fields correctly.'); return;
-  }
-  if (cost >= price) {
-    alert('Selling price must be greater than cost price.'); return;
-  }
-
-  p.name     = name;
-  p.category = category;
-  p.cost     = cost;
-  p.price    = price;
-  p.stock    = stock;
-  p.minStock = minStock;
+  p.name = name; p.category = category; p.brand = brand;
+  p.variant = variant; p.sku = sku; p.cost = cost;
+  p.price = price; p.stock = stock; p.minStock = minStock;
 
   saveProducts();
   clearProductForm();
 
-  // Reset button back to Add Product
   const btn = document.querySelector('.form-section button');
   btn.textContent = '+ Add Product';
   btn.onclick     = addProduct;
 
   render();
+  toast(`✓ ${name} updated`);
 }
 
 function sellProduct(id) {
@@ -190,6 +198,9 @@ function saveProducts() {
 function clearProductForm() {
   document.getElementById('prod-name').value     = '';
   document.getElementById('prod-category').value = '';
+  document.getElementById('prod-brand').value    = '';
+  document.getElementById('prod-variant').value  = '';
+  document.getElementById('prod-sku').value      = '';
   document.getElementById('prod-cost').value     = '';
   document.getElementById('prod-price').value    = '';
   document.getElementById('prod-stock').value    = '';
@@ -302,10 +313,15 @@ function renderProducts() {
       ? `<span class="badge danger pulse">${p.stock} units — Low</span>`
       : `<span class="badge income">${p.stock} units</span>`;
 
-    return `
+      return `
       <tr class="${isLow && !isEmpty ? 'row-low' : ''}">
-        <td>${p.name}</td>
+        <td>
+          <div style="font-weight:600;">${p.name}</div>
+          <div style="font-size:11px;color:var(--muted);margin-top:2px;">${p.sku || '—'}</div>
+        </td>
         <td><span class="badge" style="background:rgba(124,106,247,0.12);color:#7c6af7;">${p.category || 'Uncategorized'}</span></td>
+        <td style="color:var(--muted);font-size:13px;">${p.brand || '—'}</td>
+        <td style="color:var(--muted);font-size:13px;">${p.variant || '—'}</td>
         <td>${fmt(p.cost)}</td>
         <td>${fmt(p.price)}</td>
         <td><span class="badge income">${margin}% margin</span></td>
@@ -315,10 +331,10 @@ function renderProducts() {
           <input type="number" id="qty-${p.id}" placeholder="Qty" min="1" max="${p.stock}"
             style="width:60px;height:32px;padding:0 8px;border-radius:8px;border:1px solid var(--card-border);background:var(--input-bg);color:var(--text);font-size:13px;" />
           <input type="text" id="note-${p.id}" placeholder="Note (optional)"
-           style="width:120px;height:32px;padding:0 8px;border-radius:8px;border:1px solid var(--card-border);background:var(--input-bg);color:var(--text);font-size:13px;margin-left:4px;" />
+            style="width:110px;height:32px;padding:0 8px;border-radius:8px;border:1px solid var(--card-border);background:var(--input-bg);color:var(--text);font-size:13px;margin-left:4px;" />
           <button class="sell-btn" onclick="sellProduct(${p.id})" ${isEmpty ? 'disabled' : ''}>
             ${isEmpty ? 'Out of stock' : 'Sell'}
-        </button>
+          </button>
         </td>
         <td>
           <input type="number" id="restock-qty-${p.id}" placeholder="Qty"
