@@ -930,6 +930,84 @@ function renderBreakEven() {
   }
 }
 
+// Feature 9 — Toast Notifications
+function toast(message, type = 'success') {
+  const existing = document.getElementById('toast');
+  if (existing) existing.remove();
+
+  const t = document.createElement('div');
+  t.id    = 'toast';
+  t.textContent = message;
+  t.style.cssText = `
+    position: fixed;
+    bottom: 28px;
+    right: 28px;
+    padding: 12px 20px;
+    border-radius: 10px;
+    font-size: 14px;
+    font-weight: 600;
+    color: #fff;
+    z-index: 9999;
+    box-shadow: 0 4px 20px rgba(0,0,0,0.3);
+    animation: slideUp 0.3s ease;
+    background: ${type === 'success' ? '#1D9E75' : type === 'error' ? '#D85A30' : '#7c6af7'};
+  `;
+  document.body.appendChild(t);
+  setTimeout(() => { t.style.animation = 'fadeOut 0.3s ease'; setTimeout(() => t.remove(), 300); }, 2500);
+}
+
+// Feature 10 — Delete Transaction
+function deleteTransaction(id) {
+  transactions = transactions.filter(t => t.id !== id);
+  saveProducts();
+  render();
+  toast('Transaction deleted');
+}
+
+// Feature 11 — Profit Goal Tracker
+let dailyGoal = parseFloat(localStorage.getItem('dailyGoal')) || 0;
+
+function setGoal() {
+  const val = parseFloat(document.getElementById('goal-input').value);
+  if (isNaN(val) || val <= 0) { toast('Enter a valid goal', 'error'); return; }
+  dailyGoal = val;
+  localStorage.setItem('dailyGoal', dailyGoal);
+  renderGoal();
+  toast('Daily goal set!');
+}
+
+function renderGoal() {
+  const today       = new Date().toISOString().split('T')[0];
+  const todayProfit = transactions.filter(t => t.date === today).reduce((s, t) => s + t.profit, 0);
+  const pct         = dailyGoal > 0 ? Math.min((todayProfit / dailyGoal) * 100, 100).toFixed(1) : 0;
+  const remaining   = Math.max(dailyGoal - todayProfit, 0);
+
+  const bar     = document.getElementById('goal-bar');
+  const label   = document.getElementById('goal-label');
+  const inputEl = document.getElementById('goal-input');
+
+  if (!bar) return;
+
+  if (dailyGoal === 0) {
+    label.textContent = 'Set a daily profit goal above';
+    bar.style.width   = '0%';
+    return;
+  }
+
+  bar.style.width      = pct + '%';
+  bar.style.background = pct >= 100 ? '#1D9E75' : pct >= 50 ? '#eab308' : '#D85A30';
+
+  if (pct >= 100) {
+    label.textContent = `🎉 Goal reached! ${fmt(todayProfit)} profit today`;
+    label.style.color = '#1D9E75';
+  } else {
+    label.textContent = `${fmt(todayProfit)} of ${fmt(dailyGoal)} — ${fmt(remaining)} to go (${pct}%)`;
+    label.style.color = 'var(--muted)';
+  }
+
+  if (inputEl && !inputEl.value) inputEl.value = dailyGoal || '';
+}
+
 if ('serviceWorker' in navigator) {
   navigator.serviceWorker.register('./sw.js')
     .then(() => console.log('Service worker registered'))
