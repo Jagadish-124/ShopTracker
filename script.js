@@ -552,17 +552,22 @@ function restockProduct(id) {
   const product   = products.find(p => p.id === id);
 
   if (!product) return;
-  if (isNaN(qty) || qty <= 0)  { alert('Enter a valid quantity.'); return; }
-  if (isNaN(cost) || cost < 0) { alert('Enter a valid cost.'); return; }
+  if (isNaN(qty) || qty <= 0)  { toast('Enter a valid quantity', 'error'); return; }
+  if (isNaN(cost) || cost < 0) { toast('Enter a valid cost', 'error'); return; }
 
   product.stock += qty;
-  restockHistory.unshift({ id: Date.now(), date: new Date().toISOString().split('T')[0], product: product.name, qty, cost, total: qty * cost });
+  restockHistory.unshift({
+    id: Date.now(),
+    date: new Date().toISOString().split('T')[0],
+    product: product.name, qty, cost, total: qty * cost
+  });
 
   qtyInput.value  = '';
   costInput.value = '';
   localStorage.setItem('restockHistory', JSON.stringify(restockHistory));
   saveProducts();
   render();
+  toast(`✓ Restocked ${qty} units of ${product.name}`);
 }
 
 function renderRestockHistory() {
