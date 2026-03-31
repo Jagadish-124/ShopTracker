@@ -196,13 +196,13 @@ function clearProductForm() {
 }
 
 function clearAllData() {
-  if (!confirm('Are you sure? This will delete all products, sales and transactions.')) return;
-  localStorage.clear();
-  products      = [];
-  transactions  = [];
-  restockHistory = [];
-  reviewedProducts = [];
-  render();
+  showConfirm('Delete all data? This cannot be undone.', () => {
+    localStorage.clear();
+    products = []; transactions = []; restockHistory = []; reviewedProducts = [];
+    dailyGoal = 0;
+    render();
+    toast('All data cleared', 'error');
+  });
 }
 
 function setSearch(val) {
