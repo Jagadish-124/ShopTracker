@@ -1,4 +1,7 @@
-let currency = localStorage.getItem('currency') || '₹';
+let currency     = localStorage.getItem('currency') || 'INR';
+let baseCurrency = 'INR';
+let exchangeRates = JSON.parse(localStorage.getItem('exchangeRates')) || null;
+let ratesUpdatedAt = localStorage.getItem('ratesUpdatedAt') || null;
 let products = JSON.parse(localStorage.getItem('products')) || [];
 let transactions = JSON.parse(localStorage.getItem('transactions')) || [];
 let searchQuery = '';
@@ -13,19 +16,70 @@ let barChart = null;
 let doughnutChart = null;
 
 function fmt(amount) {
-  return currency + amount.toLocaleString('en-IN');
+  const symbols = { INR: '₹', USD: '$', EUR: '€', GBP: '£', JPY: '¥' };
+  const converted = convertAmount(amount);
+  const symbol    = symbols[currency] || currency;
+  return symbol + Math.round(converted).toLocaleString('en-IN');
+}
+
+function convertAmount(amount) {
+  if (!exchangeRates || currency === baseCurrency) return amount;
+  const inUSD    = amount / (exchangeRates['INR'] || 1);
+  const inTarget = inUSD * (exchangeRates[currency] || 1);
+  return inTarget;
 }
 
 function setCurrency(val) {
   currency = val;
   localStorage.setItem('currency', val);
   render();
+  toast(`Currency switched to ${val}`);
 }
 
 function loadCurrency() {
-  const saved = localStorage.getItem('currency') || '₹';
-  currency = saved;
-  document.getElementById('currency-select').value = saved;
+  const saved = localStorage.getItem('currency') || 'INR';
+  currency    = saved;
+  const el    = document.getElementById('currency-select');
+  if (el) el.value = saved;
+}
+
+async function fetchExchangeRates() {
+  // Use cached rates if less than 1 hour old
+  const now     = Date.now();
+  const oneHour = 60 * 60 * 1000;
+
+  if (exchangeRates && ratesUpdatedAt && (now - parseInt(ratesUpdatedAt)) < oneHour) {
+    updateRatesBadge('Rates cached');
+    return;
+  }
+
+  updateRatesBadge('Fetching rates...');
+
+  try {
+    const res  = await fetch('https://v6.exchangerate-api.com/v6/c4700f47c7f6f17c24b3d4f6/latest/USD');
+    const data = await res.json();
+
+    if (data.result === 'success') {
+      exchangeRates  = data.conversion_rates;
+      ratesUpdatedAt = Date.now().toString();
+      localStorage.setItem('exchangeRates',  JSON.stringify(exchangeRates));
+      localStorage.setItem('ratesUpdatedAt', ratesUpdatedAt);
+      updateRatesBadge(`Rates updated`);
+      render();
+      toast('✓ Live exchange rates loaded');
+    } else {
+      updateRatesBadge('Rates unavailable');
+      toast('Could not fetch rates', 'error');
+    }
+  } catch (err) {
+    updateRatesBadge('Offline — cached rates');
+    toast('Using cached rates', 'info');
+  }
+}
+
+function updateRatesBadge(text) {
+  const el = document.getElementById('rates-badge');
+  if (el) el.textContent = text;
 }
 
 function render() {
@@ -712,6 +766,7 @@ function loadTheme() {
 window.addEventListener('load', () => {
   loadTheme();
   loadCurrency();
+  fetchExchangeRates();
   render();
   renderDashboard();
 });
