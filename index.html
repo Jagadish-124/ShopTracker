@@ -288,6 +288,26 @@
     </table>
   </div>
 
+  <!-- Date Range Filter -->
+<div class="date-filter-bar">
+  <div style="display:flex;align-items:center;gap:8px;">
+    <span style="font-size:13px;color:var(--muted);font-weight:600;">FROM</span>
+    <input type="date" id="date-from" onchange="setDateFrom(this.value)"
+      style="height:36px;padding:0 10px;border:1px solid var(--card-border);border-radius:8px;background:var(--input-bg);color:var(--text);font-size:13px;outline:none;" />
+  </div>
+  <div style="display:flex;align-items:center;gap:8px;">
+    <span style="font-size:13px;color:var(--muted);font-weight:600;">TO</span>
+    <input type="date" id="date-to" onchange="setDateTo(this.value)"
+      style="height:36px;padding:0 10px;border:1px solid var(--card-border);border-radius:8px;background:var(--input-bg);color:var(--text);font-size:13px;outline:none;" />
+  </div>
+  <button onclick="clearDateFilter()" class="export-btn" style="border-color:rgba(107,114,128,0.4);color:var(--muted);">
+    ✕ Clear Filter
+  </button>
+</div>
+
+<!-- Date Stats -->
+<div id="date-stats" style="display:none;gap:12px;margin-bottom:16px;flex-wrap:wrap;"></div>
+
   <!-- Sales Transactions -->
   <div class="section-title">Sales Transactions</div>
   <div class="table-wrap" style="margin-bottom:32px;">
