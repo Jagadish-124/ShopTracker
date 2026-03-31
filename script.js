@@ -756,6 +756,56 @@ function renderDateStats() {
   `;
 }
 
+// Feature 5 — Monthly/Weekly Report
+function renderReport(period) {
+  const now    = new Date();
+  const report = document.getElementById('report-body');
+  const title  = document.getElementById('report-title');
+  let groups   = {};
+
+  transactions.forEach(t => {
+    const d   = new Date(t.date);
+    let key;
+    if (period === 'weekly') {
+      const weekNum = getWeekNumber(d);
+      key = `Week ${weekNum}, ${d.getFullYear()}`;
+    } else {
+      key = d.toLocaleDateString('en-IN', { month: 'long', year: 'numeric' });
+    }
+    if (!groups[key]) groups[key] = { revenue: 0, cost: 0, profit: 0, items: 0 };
+    groups[key].revenue += t.total;
+    groups[key].cost    += t.totalCost;
+    groups[key].profit  += t.profit;
+    groups[key].items   += t.qty;
+  });
+
+  title.textContent = period === 'weekly' ? 'Weekly Report' : 'Monthly Report';
+
+  const entries = Object.entries(groups).reverse();
+  if (!entries.length) {
+    report.innerHTML = '<tr><td colspan="5" class="empty">No data yet.</td></tr>';
+    return;
+  }
+
+  report.innerHTML = entries.map(([period, d]) => `
+    <tr>
+      <td style="font-weight:600;">${period}</td>
+      <td style="color:#1D9E75;font-weight:700;">${fmt(d.revenue)}</td>
+      <td style="color:#D85A30;font-weight:700;">${fmt(d.cost)}</td>
+      <td style="color:#7c6af7;font-weight:700;">${fmt(d.profit)}</td>
+      <td>${d.items}</td>
+    </tr>
+  `).join('');
+}
+
+function getWeekNumber(d) {
+  const date = new Date(Date.UTC(d.getFullYear(), d.getMonth(), d.getDate()));
+  const dayNum = date.getUTCDay() || 7;
+  date.setUTCDate(date.getUTCDate() + 4 - dayNum);
+  const yearStart = new Date(Date.UTC(date.getUTCFullYear(), 0, 1));
+  return Math.ceil((((date - yearStart) / 86400000) + 1) / 7);
+}
+
 if ('serviceWorker' in navigator) {
   navigator.serviceWorker.register('./sw.js')
     .then(() => console.log('Service worker registered'))
