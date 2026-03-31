@@ -806,6 +806,56 @@ function getWeekNumber(d) {
   return Math.ceil((((date - yearStart) / 86400000) + 1) / 7);
 }
 
+// Feature 6 — Category-wise Profit Report
+function renderCategoryReport() {
+  const catMap = {};
+
+  transactions.forEach(t => {
+    const product = products.find(p => p.name === t.product);
+    const cat     = product ? (product.category || 'Uncategorized') : 'Uncategorized';
+    if (!catMap[cat]) catMap[cat] = { revenue: 0, cost: 0, profit: 0, items: 0, products: new Set() };
+    catMap[cat].revenue  += t.total;
+    catMap[cat].cost     += t.totalCost;
+    catMap[cat].profit   += t.profit;
+    catMap[cat].items    += t.qty;
+    catMap[cat].products.add(t.product);
+  });
+
+  const tbody = document.getElementById('cat-report-body');
+  const entries = Object.entries(catMap).sort((a, b) => b[1].profit - a[1].profit);
+
+  if (!entries.length) {
+    tbody.innerHTML = '<tr><td colspan="6" class="empty">No sales data yet.</td></tr>';
+    return;
+  }
+
+  const totalRevenue = entries.reduce((s, [, d]) => s + d.revenue, 0);
+
+  tbody.innerHTML = entries.map(([cat, d]) => {
+    const share  = totalRevenue > 0 ? ((d.revenue / totalRevenue) * 100).toFixed(1) : 0;
+    const margin = d.revenue > 0 ? ((d.profit / d.revenue) * 100).toFixed(1) : 0;
+    return `
+      <tr>
+        <td>
+          <span class="badge" style="background:rgba(124,106,247,0.12);color:#7c6af7;">${cat}</span>
+        </td>
+        <td>${d.products.size} products</td>
+        <td style="color:#1D9E75;font-weight:700;">${fmt(d.revenue)}</td>
+        <td style="color:#D85A30;font-weight:700;">${fmt(d.cost)}</td>
+        <td style="color:#7c6af7;font-weight:700;">${fmt(d.profit)}</td>
+        <td>
+          <div style="display:flex;align-items:center;gap:8px;">
+            <div style="flex:1;background:var(--card-border);border-radius:4px;height:6px;">
+              <div style="width:${share}%;background:#1D9E75;border-radius:4px;height:6px;"></div>
+            </div>
+            <span style="font-size:12px;font-weight:600;color:var(--muted);min-width:36px;">${share}%</span>
+          </div>
+        </td>
+      </tr>
+    `;
+  }).join('');
+}
+
 if ('serviceWorker' in navigator) {
   navigator.serviceWorker.register('./sw.js')
     .then(() => console.log('Service worker registered'))
