@@ -35,6 +35,7 @@ function render() {
   renderDeadStock();
   renderSmartInsights();
   renderRestockHistory();
+  renderCategoryReport();
 }
 
 function renderStats() {
