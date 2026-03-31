@@ -341,16 +341,17 @@ function updateCategoryFilter() {
 }
 
 function renderTransactions() {
-  const tbody       = document.getElementById('txn-body');
-  const totalProfit = transactions.reduce((s, t) => s + t.profit, 0);
+  const tbody    = document.getElementById('txn-body');
+  const filtered = getFilteredTransactions();
+  const totalProfit = filtered.reduce((s, t) => s + t.profit, 0);
 
-  if (!transactions.length) {
-    tbody.innerHTML = '<tr><td colspan="6" class="empty">No sales yet.</td></tr>';
+  if (!filtered.length) {
+    tbody.innerHTML = '<tr><td colspan="6" class="empty">No transactions found.</td></tr>';
     document.getElementById('total-profit').textContent = fmt(0);
     return;
   }
 
-  tbody.innerHTML = transactions.map(t => `
+  tbody.innerHTML = filtered.map(t => `
     <tr>
       <td>${t.date}</td>
       <td>${t.product}</td>
