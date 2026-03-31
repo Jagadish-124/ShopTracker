@@ -686,6 +686,75 @@ window.addEventListener('load', () => {
   renderDashboard();
 });
 
+// Feature 4 — Date Range Filter
+let dateFrom = '';
+let dateTo   = '';
+
+function setDateFrom(val) {
+  dateFrom = val;
+  renderTransactions();
+  renderDateStats();
+}
+
+function setDateTo(val) {
+  dateTo = val;
+  renderTransactions();
+  renderDateStats();
+}
+
+function clearDateFilter() {
+  dateFrom = '';
+  dateTo   = '';
+  document.getElementById('date-from').value = '';
+  document.getElementById('date-to').value   = '';
+  renderTransactions();
+  renderDateStats();
+}
+
+function getFilteredTransactions() {
+  return transactions.filter(t => {
+    if (dateFrom && t.date < dateFrom) return false;
+    if (dateTo   && t.date > dateTo)   return false;
+    return true;
+  });
+}
+
+function renderDateStats() {
+  const filtered = getFilteredTransactions();
+  const rev    = filtered.reduce((s, t) => s + t.total, 0);
+  const profit = filtered.reduce((s, t) => s + t.profit, 0);
+  const cost   = filtered.reduce((s, t) => s + t.totalCost, 0);
+  const items  = filtered.reduce((s, t) => s + t.qty, 0);
+
+  const el = document.getElementById('date-stats');
+  if (!el) return;
+
+  if (!dateFrom && !dateTo) {
+    el.style.display = 'none';
+    return;
+  }
+
+  el.style.display = 'flex';
+  el.innerHTML = `
+    <div class="date-stat-card">
+      <div class="date-stat-label">Revenue</div>
+      <div class="date-stat-value" style="color:#1D9E75;">${fmt(rev)}</div>
+    </div>
+    <div class="date-stat-card">
+      <div class="date-stat-label">Cost</div>
+      <div class="date-stat-value" style="color:#D85A30;">${fmt(cost)}</div>
+    </div>
+    <div class="date-stat-card">
+      <div class="date-stat-label">Profit</div>
+      <div class="date-stat-value" style="color:#7c6af7;">${fmt(profit)}</div>
+    </div>
+    <div class="date-stat-card">
+      <div class="date-stat-label">Items Sold</div>
+      <div class="date-stat-value">${items}</div>
+    </div>
+  `;
+}
+
 if ('serviceWorker' in navigator) {
   navigator.serviceWorker.register('./sw.js')
     .then(() => console.log('Service worker registered'))
