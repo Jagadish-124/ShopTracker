@@ -14,6 +14,145 @@ let reviewedProducts = JSON.parse(localStorage.getItem('reviewed')) || [];
 let restockHistory = JSON.parse(localStorage.getItem('restockHistory')) || [];
 let barChart = null;
 let doughnutChart = null;
+let authMode = 'login';
+let authConfig = JSON.parse(localStorage.getItem('authConfig')) || null;
+
+function bufferToHex(buffer) {
+  return Array.from(new Uint8Array(buffer))
+    .map(byte => byte.toString(16).padStart(2, '0'))
+    .join('');
+}
+
+function generateSalt() {
+  const bytes = crypto.getRandomValues(new Uint8Array(16));
+  return Array.from(bytes)
+    .map(byte => byte.toString(16).padStart(2, '0'))
+    .join('');
+}
+
+async function hashPassword(password, salt) {
+  const encoded = new TextEncoder().encode(`${salt}:${password}`);
+  const digest = await crypto.subtle.digest('SHA-256', encoded);
+  return bufferToHex(digest);
+}
+
+function isAuthenticated() {
+  return sessionStorage.getItem('isAuthenticated') === 'true';
+}
+
+function getAuthElements() {
+  return {
+    overlay: document.getElementById('auth-overlay'),
+    shell: document.getElementById('app-shell'),
+    title: document.getElementById('auth-title'),
+    subtitle: document.getElementById('auth-subtitle'),
+    password: document.getElementById('auth-password'),
+    confirm: document.getElementById('auth-confirm-password'),
+    confirmGroup: document.getElementById('auth-confirm-group'),
+    submit: document.getElementById('auth-submit-btn'),
+    switchBtn: document.getElementById('auth-switch-btn'),
+    message: document.getElementById('auth-message'),
+    logout: document.getElementById('logout-btn')
+  };
+}
+
+function setAuthMessage(message, type = 'info') {
+  const { message: el } = getAuthElements();
+  if (!el) return;
+  el.textContent = message;
+  el.className = `auth-message ${type}`;
+}
+
+function updateAuthMode(mode) {
+  authMode = mode;
+  const { title, subtitle, confirmGroup, submit, switchBtn, password, confirm, message } = getAuthElements();
+  if (!title) return;
+
+  const hasPassword = !!(authConfig && authConfig.passwordHash && authConfig.salt);
+  const setupMode = mode === 'setup';
+
+  title.textContent = setupMode ? 'Create your Shop Tracker password' : 'Unlock Shop Tracker';
+  subtitle.textContent = setupMode
+    ? 'Set a password to protect your sales and inventory data on this device.'
+    : 'Enter your password to continue to the dashboard.';
+  confirmGroup.style.display = setupMode ? 'block' : 'none';
+  submit.textContent = setupMode ? 'Create Password' : 'Unlock';
+  switchBtn.style.display = hasPassword ? 'none' : 'inline-flex';
+  switchBtn.textContent = setupMode ? 'Already have a password?' : 'Need to create a password?';
+
+  password.value = '';
+  confirm.value = '';
+  message.textContent = '';
+  password.focus();
+}
+
+function updateAuthUI() {
+  const { overlay, shell, logout } = getAuthElements();
+  const authed = isAuthenticated();
+
+  if (overlay) overlay.style.display = authed ? 'none' : 'flex';
+  if (shell) shell.classList.toggle('app-shell-hidden', !authed);
+  if (logout) logout.style.display = authConfig && authed ? 'inline-flex' : 'none';
+}
+
+function switchAuthMode() {
+  updateAuthMode(authMode === 'setup' ? 'login' : 'setup');
+}
+
+async function handleAuthAction() {
+  const { password, confirm } = getAuthElements();
+  const pwd = password.value.trim();
+
+  if (pwd.length < 4) {
+    setAuthMessage('Use at least 4 characters for the password.', 'error');
+    return;
+  }
+
+  if (authMode === 'setup') {
+    if (pwd !== confirm.value.trim()) {
+      setAuthMessage('Passwords do not match.', 'error');
+      return;
+    }
+
+    const salt = generateSalt();
+    const passwordHash = await hashPassword(pwd, salt);
+    authConfig = { salt, passwordHash, createdAt: new Date().toISOString() };
+    localStorage.setItem('authConfig', JSON.stringify(authConfig));
+    sessionStorage.setItem('isAuthenticated', 'true');
+    updateAuthUI();
+    toast('Authentication enabled');
+    return;
+  }
+
+  if (!authConfig || !authConfig.salt || !authConfig.passwordHash) {
+    updateAuthMode('setup');
+    setAuthMessage('Create a password first.', 'info');
+    return;
+  }
+
+  const passwordHash = await hashPassword(pwd, authConfig.salt);
+  if (passwordHash !== authConfig.passwordHash) {
+    setAuthMessage('Incorrect password. Try again.', 'error');
+    return;
+  }
+
+  sessionStorage.setItem('isAuthenticated', 'true');
+  updateAuthUI();
+  setAuthMessage('');
+  toast('Welcome back');
+}
+
+function logout() {
+  sessionStorage.removeItem('isAuthenticated');
+  updateAuthMode('login');
+  updateAuthUI();
+}
+
+function initAuth() {
+  authConfig = JSON.parse(localStorage.getItem('authConfig')) || null;
+  updateAuthMode(authConfig ? 'login' : 'setup');
+  updateAuthUI();
+}
 
 function fmt(amount) {
   const symbols = { INR: '₹', USD: '$', EUR: '€', GBP: '£', JPY: '¥' };
@@ -264,8 +403,11 @@ function clearProductForm() {
 function clearAllData() {
   showConfirm('Delete all data? This cannot be undone.', () => {
     localStorage.clear();
+    sessionStorage.removeItem('isAuthenticated');
     products = []; transactions = []; restockHistory = []; reviewedProducts = [];
     dailyGoal = 0;
+    authConfig = null;
+    initAuth();
     render();
     toast('All data cleared', 'error');
   });
@@ -764,11 +906,18 @@ function loadTheme() {
 }
 
 window.addEventListener('load', () => {
+  initAuth();
   loadTheme();
   loadCurrency();
   fetchExchangeRates();
   render();
   renderDashboard();
+});
+
+document.addEventListener('keydown', event => {
+  if (event.key !== 'Enter') return;
+  if (document.getElementById('auth-overlay')?.style.display === 'none') return;
+  handleAuthAction();
 });
 
 // Feature 4 — Date Range Filter

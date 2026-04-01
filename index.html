@@ -16,6 +16,30 @@
   <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf-autotable/3.6.0/jspdf.plugin.autotable.min.js"></script>
 </head>
 <body>
+  <div id="auth-overlay" class="auth-overlay">
+    <div class="auth-card">
+      <div class="auth-badge">Protected Access</div>
+      <h2 id="auth-title">Unlock Shop Tracker</h2>
+      <p id="auth-subtitle" class="auth-subtitle">Sign in to continue.</p>
+      <div class="auth-form">
+        <div class="form-group">
+          <label for="auth-password">Password</label>
+          <input type="password" id="auth-password" placeholder="Enter password" autocomplete="current-password" />
+        </div>
+        <div class="form-group" id="auth-confirm-group" style="display:none;">
+          <label for="auth-confirm-password">Confirm Password</label>
+          <input type="password" id="auth-confirm-password" placeholder="Confirm password" autocomplete="new-password" />
+        </div>
+        <button id="auth-submit-btn" onclick="handleAuthAction()">Unlock</button>
+        <button id="auth-switch-btn" type="button" class="auth-secondary-btn" onclick="switchAuthMode()" style="display:none;">
+          Need to create a password?
+        </button>
+      </div>
+      <div id="auth-message" class="auth-message"></div>
+    </div>
+  </div>
+
+  <div id="app-shell" class="app-shell app-shell-hidden">
 
   <!-- Header -->
   <div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:10px;margin-bottom:12px;">
@@ -39,6 +63,7 @@
           <input type="file" accept=".json" onchange="restoreData(event)" style="display:none;" />
         </label>
         <button onclick="toggleTheme()" id="theme-btn" class="export-btn" style="font-size:16px;">🌙</button>
+        <button onclick="logout()" id="logout-btn" class="export-btn" style="border-color:rgba(216,90,48,0.4);color:#D85A30;display:none;">Lock App</button>
         <button onclick="exportCSV()" class="export-btn csv-btn">⬇ Export CSV</button>
         <button onclick="exportPDF()" class="export-btn pdf-btn">⬇ Export PDF</button>
         <button onclick="clearAllData()" class="clear-btn">🗑 Clear All Data</button>
@@ -442,5 +467,6 @@
   </div>
 
   <script src="script.js"></script>
+  </div>
 </body>
 </html>
