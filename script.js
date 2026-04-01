@@ -1,21 +1,25 @@
-let currency     = localStorage.getItem('currency') || 'INR';
+const USERS_KEY = 'shopUsers';
+const CURRENT_USER_KEY = 'currentUserId';
+
+let currency = 'INR';
 let baseCurrency = 'INR';
 let exchangeRates = JSON.parse(localStorage.getItem('exchangeRates')) || null;
 let ratesUpdatedAt = localStorage.getItem('ratesUpdatedAt') || null;
-let products = JSON.parse(localStorage.getItem('products')) || [];
-let transactions = JSON.parse(localStorage.getItem('transactions')) || [];
+let products = [];
+let transactions = [];
 let searchQuery = '';
 let filterCategory = 'all';
 let sortBy = 'none';
 let nextProdId = Date.now() + 1;
 let deadStockDays = 7;
-let skuCounter = parseInt(localStorage.getItem('skuCounter')) || 1;
-let reviewedProducts = JSON.parse(localStorage.getItem('reviewed')) || [];
-let restockHistory = JSON.parse(localStorage.getItem('restockHistory')) || [];
+let skuCounter = 1;
+let reviewedProducts = [];
+let restockHistory = [];
 let barChart = null;
 let doughnutChart = null;
 let authMode = 'login';
-let authConfig = JSON.parse(localStorage.getItem('authConfig')) || null;
+let currentUser = null;
+let dailyGoal = 0;
 
 function bufferToHex(buffer) {
   return Array.from(new Uint8Array(buffer))
@@ -36,8 +40,100 @@ async function hashPassword(password, salt) {
   return bufferToHex(digest);
 }
 
+function getUsers() {
+  return JSON.parse(localStorage.getItem(USERS_KEY)) || [];
+}
+
+function saveUsers(users) {
+  localStorage.setItem(USERS_KEY, JSON.stringify(users));
+}
+
+function normalizeEmail(email) {
+  return email.trim().toLowerCase();
+}
+
+function getCurrentUserId() {
+  return sessionStorage.getItem(CURRENT_USER_KEY) || null;
+}
+
+function setCurrentUserId(userId) {
+  if (userId) {
+    sessionStorage.setItem(CURRENT_USER_KEY, userId);
+  } else {
+    sessionStorage.removeItem(CURRENT_USER_KEY);
+  }
+}
+
 function isAuthenticated() {
-  return sessionStorage.getItem('isAuthenticated') === 'true';
+  return sessionStorage.getItem('isAuthenticated') === 'true' && !!getCurrentUserId();
+}
+
+function getUserStorageKey(userId, key) {
+  return `user:${userId}:${key}`;
+}
+
+function getUserValue(userId, key, fallback) {
+  const raw = localStorage.getItem(getUserStorageKey(userId, key));
+  if (raw === null) return fallback;
+  try {
+    return JSON.parse(raw);
+  } catch {
+    return raw;
+  }
+}
+
+function setUserValue(userId, key, value) {
+  localStorage.setItem(getUserStorageKey(userId, key), JSON.stringify(value));
+}
+
+function removeUserValue(userId, key) {
+  localStorage.removeItem(getUserStorageKey(userId, key));
+}
+
+function migrateLegacyDataToUser(userId) {
+  const hasLegacyData = ['products', 'transactions', 'restockHistory', 'reviewed', 'currency', 'skuCounter', 'dailyGoal']
+    .some(key => localStorage.getItem(key) !== null);
+
+  if (!hasLegacyData) return;
+
+  if (localStorage.getItem(getUserStorageKey(userId, 'products')) !== null) return;
+
+  setUserValue(userId, 'products', JSON.parse(localStorage.getItem('products')) || []);
+  setUserValue(userId, 'transactions', JSON.parse(localStorage.getItem('transactions')) || []);
+  setUserValue(userId, 'restockHistory', JSON.parse(localStorage.getItem('restockHistory')) || []);
+  setUserValue(userId, 'reviewed', JSON.parse(localStorage.getItem('reviewed')) || []);
+  setUserValue(userId, 'currency', localStorage.getItem('currency') || 'INR');
+  setUserValue(userId, 'skuCounter', parseInt(localStorage.getItem('skuCounter')) || 1);
+  setUserValue(userId, 'dailyGoal', parseFloat(localStorage.getItem('dailyGoal')) || 0);
+}
+
+function loadCurrentUserData() {
+  if (!currentUser) return;
+
+  migrateLegacyDataToUser(currentUser.id);
+
+  products = getUserValue(currentUser.id, 'products', []);
+  transactions = getUserValue(currentUser.id, 'transactions', []);
+  restockHistory = getUserValue(currentUser.id, 'restockHistory', []);
+  reviewedProducts = getUserValue(currentUser.id, 'reviewed', []);
+  currency = getUserValue(currentUser.id, 'currency', 'INR');
+  skuCounter = parseInt(getUserValue(currentUser.id, 'skuCounter', 1)) || 1;
+  dailyGoal = parseFloat(getUserValue(currentUser.id, 'dailyGoal', 0)) || 0;
+  nextProdId = Math.max(Date.now(), ...products.map(p => Number(p.id) || 0)) + 1;
+
+  const currencySelect = document.getElementById('currency-select');
+  if (currencySelect) currencySelect.value = currency;
+}
+
+function saveCurrentUserData() {
+  if (!currentUser) return;
+  setUserValue(currentUser.id, 'products', products);
+  setUserValue(currentUser.id, 'transactions', transactions);
+  setUserValue(currentUser.id, 'restockHistory', restockHistory);
+  setUserValue(currentUser.id, 'reviewed', reviewedProducts);
+  setUserValue(currentUser.id, 'currency', currency);
+  setUserValue(currentUser.id, 'skuCounter', skuCounter);
+  setUserValue(currentUser.id, 'dailyGoal', dailyGoal);
 }
 
 function getAuthElements() {
@@ -46,13 +142,17 @@ function getAuthElements() {
     shell: document.getElementById('app-shell'),
     title: document.getElementById('auth-title'),
     subtitle: document.getElementById('auth-subtitle'),
+    name: document.getElementById('auth-name'),
+    nameGroup: document.getElementById('auth-name-group'),
+    email: document.getElementById('auth-email'),
     password: document.getElementById('auth-password'),
     confirm: document.getElementById('auth-confirm-password'),
     confirmGroup: document.getElementById('auth-confirm-group'),
     submit: document.getElementById('auth-submit-btn'),
     switchBtn: document.getElementById('auth-switch-btn'),
     message: document.getElementById('auth-message'),
-    logout: document.getElementById('logout-btn')
+    logout: document.getElementById('logout-btn'),
+    userBadge: document.getElementById('current-user-badge')
   };
 }
 
@@ -65,92 +165,147 @@ function setAuthMessage(message, type = 'info') {
 
 function updateAuthMode(mode) {
   authMode = mode;
-  const { title, subtitle, confirmGroup, submit, switchBtn, password, confirm, message } = getAuthElements();
+  const { title, subtitle, nameGroup, confirmGroup, submit, switchBtn, name, email, password, confirm, message } = getAuthElements();
   if (!title) return;
 
-  const hasPassword = !!(authConfig && authConfig.passwordHash && authConfig.salt);
-  const setupMode = mode === 'setup';
+  const signupMode = mode === 'signup';
 
-  title.textContent = setupMode ? 'Create your Shop Tracker password' : 'Unlock Shop Tracker';
-  subtitle.textContent = setupMode
-    ? 'Set a password to protect your sales and inventory data on this device.'
-    : 'Enter your password to continue to the dashboard.';
-  confirmGroup.style.display = setupMode ? 'block' : 'none';
-  submit.textContent = setupMode ? 'Create Password' : 'Unlock';
-  switchBtn.style.display = hasPassword ? 'none' : 'inline-flex';
-  switchBtn.textContent = setupMode ? 'Already have a password?' : 'Need to create a password?';
+  title.textContent = signupMode ? 'Create your account' : 'Log in to Shop Tracker';
+  subtitle.textContent = signupMode
+    ? 'Create an account to keep products, sales, and goals separate for each user.'
+    : 'Sign in to open your own inventory and sales dashboard.';
+  nameGroup.style.display = signupMode ? 'block' : 'none';
+  confirmGroup.style.display = signupMode ? 'block' : 'none';
+  submit.textContent = signupMode ? 'Sign Up' : 'Log In';
+  switchBtn.style.display = 'inline-flex';
+  switchBtn.textContent = signupMode ? 'Already have an account?' : 'Need to create an account?';
 
+  name.value = '';
+  email.value = '';
   password.value = '';
   confirm.value = '';
   message.textContent = '';
-  password.focus();
+  (signupMode ? name : email).focus();
 }
 
 function updateAuthUI() {
-  const { overlay, shell, logout } = getAuthElements();
+  const { overlay, shell, logout, userBadge } = getAuthElements();
   const authed = isAuthenticated();
 
   if (overlay) overlay.style.display = authed ? 'none' : 'flex';
   if (shell) shell.classList.toggle('app-shell-hidden', !authed);
-  if (logout) logout.style.display = authConfig && authed ? 'inline-flex' : 'none';
+  if (logout) logout.style.display = authed ? 'inline-flex' : 'none';
+  if (userBadge) {
+    userBadge.style.display = authed && currentUser ? 'inline-flex' : 'none';
+    userBadge.textContent = currentUser ? currentUser.name || currentUser.email : '';
+  }
 }
 
 function switchAuthMode() {
-  updateAuthMode(authMode === 'setup' ? 'login' : 'setup');
+  updateAuthMode(authMode === 'signup' ? 'login' : 'signup');
+}
+
+function completeLogin(user) {
+  currentUser = user;
+  setCurrentUserId(user.id);
+  sessionStorage.setItem('isAuthenticated', 'true');
+  loadCurrentUserData();
+  loadCurrency();
+  render();
+  renderDashboard();
+  renderDateStats();
+  updateAuthUI();
 }
 
 async function handleAuthAction() {
-  const { password, confirm } = getAuthElements();
+  const { name, email, password, confirm } = getAuthElements();
+  const displayName = name.value.trim();
+  const userEmail = normalizeEmail(email.value);
   const pwd = password.value.trim();
+
+  if (!userEmail) {
+    setAuthMessage('Enter a valid email address.', 'error');
+    return;
+  }
 
   if (pwd.length < 4) {
     setAuthMessage('Use at least 4 characters for the password.', 'error');
     return;
   }
 
-  if (authMode === 'setup') {
+  if (authMode === 'signup') {
+    if (!displayName) {
+      setAuthMessage('Enter your name to create the account.', 'error');
+      return;
+    }
     if (pwd !== confirm.value.trim()) {
       setAuthMessage('Passwords do not match.', 'error');
       return;
     }
 
+    const users = getUsers();
+    if (users.some(user => user.email === userEmail)) {
+      setAuthMessage('That email is already registered. Log in instead.', 'error');
+      return;
+    }
+
     const salt = generateSalt();
     const passwordHash = await hashPassword(pwd, salt);
-    authConfig = { salt, passwordHash, createdAt: new Date().toISOString() };
-    localStorage.setItem('authConfig', JSON.stringify(authConfig));
-    sessionStorage.setItem('isAuthenticated', 'true');
-    updateAuthUI();
-    toast('Authentication enabled');
+    const user = {
+      id: `user-${Date.now()}`,
+      name: displayName,
+      email: userEmail,
+      salt,
+      passwordHash,
+      createdAt: new Date().toISOString()
+    };
+    users.push(user);
+    saveUsers(users);
+    completeLogin(user);
+    toast(`Welcome, ${user.name}`);
     return;
   }
 
-  if (!authConfig || !authConfig.salt || !authConfig.passwordHash) {
-    updateAuthMode('setup');
-    setAuthMessage('Create a password first.', 'info');
+  const users = getUsers();
+  const user = users.find(item => item.email === userEmail);
+  if (!user) {
+    setAuthMessage('No account found for that email.', 'error');
     return;
   }
 
-  const passwordHash = await hashPassword(pwd, authConfig.salt);
-  if (passwordHash !== authConfig.passwordHash) {
+  const passwordHash = await hashPassword(pwd, user.salt);
+  if (passwordHash !== user.passwordHash) {
     setAuthMessage('Incorrect password. Try again.', 'error');
     return;
   }
 
-  sessionStorage.setItem('isAuthenticated', 'true');
-  updateAuthUI();
+  completeLogin(user);
   setAuthMessage('');
-  toast('Welcome back');
+  toast(`Welcome back, ${user.name}`);
 }
 
 function logout() {
   sessionStorage.removeItem('isAuthenticated');
-  updateAuthMode('login');
+  setCurrentUserId(null);
+  currentUser = null;
+  products = [];
+  transactions = [];
+  restockHistory = [];
+  reviewedProducts = [];
+  dailyGoal = 0;
+  currency = 'INR';
+  skuCounter = 1;
+  updateAuthMode(getUsers().length ? 'login' : 'signup');
   updateAuthUI();
 }
 
 function initAuth() {
-  authConfig = JSON.parse(localStorage.getItem('authConfig')) || null;
-  updateAuthMode(authConfig ? 'login' : 'setup');
+  const userId = getCurrentUserId();
+  currentUser = getUsers().find(user => user.id === userId) || null;
+  if (isAuthenticated() && currentUser) {
+    loadCurrentUserData();
+  }
+  updateAuthMode(getUsers().length ? 'login' : 'signup');
   updateAuthUI();
 }
 
@@ -170,16 +325,14 @@ function convertAmount(amount) {
 
 function setCurrency(val) {
   currency = val;
-  localStorage.setItem('currency', val);
+  saveCurrentUserData();
   render();
   toast(`Currency switched to ${val}`);
 }
 
 function loadCurrency() {
-  const saved = localStorage.getItem('currency') || 'INR';
-  currency    = saved;
   const el    = document.getElementById('currency-select');
-  if (el) el.value = saved;
+  if (el) el.value = currency;
 }
 
 async function fetchExchangeRates() {
@@ -285,7 +438,7 @@ function addProduct() {
 
   products.push({ id: nextProdId++, sku, name, brand, variant, category, cost, price, stock, minStock });
   skuCounter++;
-  localStorage.setItem('skuCounter', skuCounter);
+  saveCurrentUserData();
   saveProducts();
   clearProductForm();
   render();
@@ -384,8 +537,7 @@ function sellProduct(id) {
 }
 
 function saveProducts() {
-  localStorage.setItem('products', JSON.stringify(products));
-  localStorage.setItem('transactions', JSON.stringify(transactions));
+  saveCurrentUserData();
 }
 
 function clearProductForm() {
@@ -401,13 +553,16 @@ function clearProductForm() {
 }
 
 function clearAllData() {
-  showConfirm('Delete all data? This cannot be undone.', () => {
-    localStorage.clear();
-    sessionStorage.removeItem('isAuthenticated');
+  showConfirm('Delete all data for this account? This cannot be undone.', () => {
+    if (!currentUser) return;
+    ['products', 'transactions', 'restockHistory', 'reviewed', 'currency', 'skuCounter', 'dailyGoal'].forEach(key => {
+      removeUserValue(currentUser.id, key);
+    });
     products = []; transactions = []; restockHistory = []; reviewedProducts = [];
     dailyGoal = 0;
-    authConfig = null;
-    initAuth();
+    currency = 'INR';
+    skuCounter = 1;
+    loadCurrency();
     render();
     toast('All data cleared', 'error');
   });
@@ -430,10 +585,12 @@ function setSort(val) {
 
 function backupData() {
   const data = {
+    user: currentUser ? { id: currentUser.id, name: currentUser.name, email: currentUser.email } : null,
     products,
     transactions,
     restockHistory,
     reviewedProducts,
+    dailyGoal,
     currency,
     exportedAt: new Date().toISOString()
   };
@@ -458,11 +615,11 @@ function restoreData(event) {
       transactions     = data.transactions     || [];
       restockHistory   = data.restockHistory   || [];
       reviewedProducts = data.reviewedProducts || [];
-      currency         = data.currency         || '₹';
+      dailyGoal        = parseFloat(data.dailyGoal) || 0;
+      skuCounter       = products.length + 1;
+      currency         = data.currency         || 'INR';
       saveProducts();
-      localStorage.setItem('restockHistory',   JSON.stringify(restockHistory));
-      localStorage.setItem('reviewed',         JSON.stringify(reviewedProducts));
-      localStorage.setItem('currency',         currency);
+      saveCurrentUserData();
       document.getElementById('currency-select').value = currency;
       render();
       alert('Data restored successfully!');
@@ -682,7 +839,7 @@ function setDeadStockDays(val) {
 function markReviewed(id) {
   if (!reviewedProducts.includes(id)) {
     reviewedProducts.push(id);
-    localStorage.setItem('reviewed', JSON.stringify(reviewedProducts));
+    saveCurrentUserData();
   }
   renderDeadStock();
 }
@@ -778,7 +935,7 @@ function restockProduct(id) {
 
   qtyInput.value  = '';
   costInput.value = '';
-  localStorage.setItem('restockHistory', JSON.stringify(restockHistory));
+  saveCurrentUserData();
   saveProducts();
   render();
   toast(`✓ Restocked ${qty} units of ${product.name}`);
@@ -1187,13 +1344,12 @@ function deleteTransaction(id) {
 }
 
 // Feature 11 — Profit Goal Tracker
-let dailyGoal = parseFloat(localStorage.getItem('dailyGoal')) || 0;
 
 function setGoal() {
   const val = parseFloat(document.getElementById('goal-input').value);
   if (isNaN(val) || val <= 0) { toast('Enter a valid goal', 'error'); return; }
   dailyGoal = val;
-  localStorage.setItem('dailyGoal', dailyGoal);
+  saveCurrentUserData();
   renderGoal();
   toast('Daily goal set!');
 }

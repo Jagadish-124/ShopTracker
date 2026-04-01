@@ -22,6 +22,14 @@
       <h2 id="auth-title">Unlock Shop Tracker</h2>
       <p id="auth-subtitle" class="auth-subtitle">Sign in to continue.</p>
       <div class="auth-form">
+        <div class="form-group" id="auth-name-group" style="display:none;">
+          <label for="auth-name">Name</label>
+          <input type="text" id="auth-name" placeholder="Your name" autocomplete="name" />
+        </div>
+        <div class="form-group">
+          <label for="auth-email">Email</label>
+          <input type="email" id="auth-email" placeholder="Enter email" autocomplete="username" />
+        </div>
         <div class="form-group">
           <label for="auth-password">Password</label>
           <input type="password" id="auth-password" placeholder="Enter password" autocomplete="current-password" />
@@ -32,7 +40,7 @@
         </div>
         <button id="auth-submit-btn" onclick="handleAuthAction()">Unlock</button>
         <button id="auth-switch-btn" type="button" class="auth-secondary-btn" onclick="switchAuthMode()" style="display:none;">
-          Need to create a password?
+          Need to create an account?
         </button>
       </div>
       <div id="auth-message" class="auth-message"></div>
@@ -49,6 +57,7 @@
     </div>
     <div style="display:flex;flex-direction:column;gap:4px;align-items:flex-end;">
       <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;justify-content:flex-end;">
+        <span id="current-user-badge" class="user-badge" style="display:none;"></span>
         <select onchange="setCurrency(this.value)" id="currency-select"
           style="height:36px;padding:0 10px;border:1px solid var(--card-border);border-radius:8px;background:var(--input-bg);color:var(--text);font-size:13px;cursor:pointer;outline:none;">
           <option value="INR">₹ INR</option>
@@ -63,7 +72,7 @@
           <input type="file" accept=".json" onchange="restoreData(event)" style="display:none;" />
         </label>
         <button onclick="toggleTheme()" id="theme-btn" class="export-btn" style="font-size:16px;">🌙</button>
-        <button onclick="logout()" id="logout-btn" class="export-btn" style="border-color:rgba(216,90,48,0.4);color:#D85A30;display:none;">Lock App</button>
+        <button onclick="logout()" id="logout-btn" class="export-btn" style="border-color:rgba(216,90,48,0.4);color:#D85A30;display:none;">Sign Out</button>
         <button onclick="exportCSV()" class="export-btn csv-btn">⬇ Export CSV</button>
         <button onclick="exportPDF()" class="export-btn pdf-btn">⬇ Export PDF</button>
         <button onclick="clearAllData()" class="clear-btn">🗑 Clear All Data</button>
