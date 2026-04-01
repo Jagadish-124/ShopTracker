@@ -1314,25 +1314,28 @@ function toast(message, type = 'success') {
   const existing = document.getElementById('toast');
   if (existing) existing.remove();
 
+  const icons = {
+    success: '✓',
+    error: '!',
+    info: 'i'
+  };
+
   const t = document.createElement('div');
   t.id    = 'toast';
-  t.textContent = message;
-  t.style.cssText = `
-    position: fixed;
-    bottom: 28px;
-    right: 28px;
-    padding: 12px 20px;
-    border-radius: 10px;
-    font-size: 14px;
-    font-weight: 600;
-    color: #fff;
-    z-index: 9999;
-    box-shadow: 0 4px 20px rgba(0,0,0,0.3);
-    animation: slideUp 0.3s ease;
-    background: ${type === 'success' ? '#1D9E75' : type === 'error' ? '#D85A30' : '#7c6af7'};
+  t.className = `toast toast-${type}`;
+  t.innerHTML = `
+    <div class="toast-icon">${icons[type] || icons.success}</div>
+    <div class="toast-copy">
+      <div class="toast-label">${type === 'error' ? 'Action needed' : type === 'info' ? 'Heads up' : 'Success'}</div>
+      <div class="toast-message">${message}</div>
+    </div>
+    <div class="toast-progress"></div>
   `;
   document.body.appendChild(t);
-  setTimeout(() => { t.style.animation = 'fadeOut 0.3s ease'; setTimeout(() => t.remove(), 300); }, 2500);
+  setTimeout(() => {
+    t.classList.add('toast-exit');
+    setTimeout(() => t.remove(), 320);
+  }, 2600);
 }
 
 // Feature 10 — Delete Transaction
