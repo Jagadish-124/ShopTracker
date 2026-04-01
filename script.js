@@ -15,12 +15,14 @@ let deadStockDays = 7;
 let skuCounter = 1;
 let reviewedProducts = [];
 let restockHistory = [];
+let movementHistory = [];
 let barChart = null;
 let doughnutChart = null;
 let authMode = 'login';
 let currentUser = null;
 let dailyGoal = 0;
 let pendingUndoTimer = null;
+let notificationSettings = { enabled: false, lowStock: true, goal: true };
 
 function bufferToHex(buffer) {
   return Array.from(new Uint8Array(buffer))
@@ -106,6 +108,8 @@ function migrateLegacyDataToUser(userId) {
   setUserValue(userId, 'currency', localStorage.getItem('currency') || 'INR');
   setUserValue(userId, 'skuCounter', parseInt(localStorage.getItem('skuCounter')) || 1);
   setUserValue(userId, 'dailyGoal', parseFloat(localStorage.getItem('dailyGoal')) || 0);
+  setUserValue(userId, 'movementHistory', []);
+  setUserValue(userId, 'notificationSettings', { enabled: false, lowStock: true, goal: true });
 }
 
 function loadCurrentUserData() {
@@ -116,10 +120,12 @@ function loadCurrentUserData() {
   products = getUserValue(currentUser.id, 'products', []);
   transactions = getUserValue(currentUser.id, 'transactions', []);
   restockHistory = getUserValue(currentUser.id, 'restockHistory', []);
+  movementHistory = getUserValue(currentUser.id, 'movementHistory', []);
   reviewedProducts = getUserValue(currentUser.id, 'reviewed', []);
   currency = getUserValue(currentUser.id, 'currency', 'INR');
   skuCounter = parseInt(getUserValue(currentUser.id, 'skuCounter', 1)) || 1;
   dailyGoal = parseFloat(getUserValue(currentUser.id, 'dailyGoal', 0)) || 0;
+  notificationSettings = getUserValue(currentUser.id, 'notificationSettings', { enabled: false, lowStock: true, goal: true });
   nextProdId = Math.max(Date.now(), ...products.map(p => Number(p.id) || 0)) + 1;
 
   const currencySelect = document.getElementById('currency-select');
@@ -131,10 +137,12 @@ function saveCurrentUserData() {
   setUserValue(currentUser.id, 'products', products);
   setUserValue(currentUser.id, 'transactions', transactions);
   setUserValue(currentUser.id, 'restockHistory', restockHistory);
+  setUserValue(currentUser.id, 'movementHistory', movementHistory);
   setUserValue(currentUser.id, 'reviewed', reviewedProducts);
   setUserValue(currentUser.id, 'currency', currency);
   setUserValue(currentUser.id, 'skuCounter', skuCounter);
   setUserValue(currentUser.id, 'dailyGoal', dailyGoal);
+  setUserValue(currentUser.id, 'notificationSettings', notificationSettings);
 }
 
 function getAuthElements() {
@@ -227,6 +235,172 @@ function openRestorePicker() {
   document.getElementById('restore-file-input')?.click();
 }
 
+function openImportCsvPicker() {
+  closeProfileMenu();
+  document.getElementById('import-csv-input')?.click();
+}
+
+async function requestNotificationAccess() {
+  closeProfileMenu();
+  if (!('Notification' in window)) {
+    toast('Browser notifications are not supported here.', 'error');
+    return;
+  }
+
+  const permission = await Notification.requestPermission();
+  if (permission !== 'granted') {
+    toast('Notification permission was not granted.', 'error');
+    return;
+  }
+
+  notificationSettings.enabled = true;
+  saveCurrentUserData();
+  toast('Notifications enabled.');
+  notifyImportantEvents(true);
+}
+
+function parseCSVRow(line) {
+  const cells = [];
+  let current = '';
+  let inQuotes = false;
+
+  for (let i = 0; i < line.length; i++) {
+    const char = line[i];
+    const next = line[i + 1];
+
+    if (char === '"') {
+      if (inQuotes && next === '"') {
+        current += '"';
+        i++;
+      } else {
+        inQuotes = !inQuotes;
+      }
+      continue;
+    }
+
+    if (char === ',' && !inQuotes) {
+      cells.push(current.trim());
+      current = '';
+      continue;
+    }
+
+    current += char;
+  }
+
+  cells.push(current.trim());
+  return cells;
+}
+
+function normalizeCSVHeader(header) {
+  return header.toLowerCase().replace(/[^a-z0-9]+/g, '');
+}
+
+function getCSVValue(row, headerMap, keys) {
+  for (const key of keys) {
+    const index = headerMap[key];
+    if (index === undefined) continue;
+    return row[index] ?? '';
+  }
+  return '';
+}
+
+function importProductsCSV(event) {
+  const file = event.target.files[0];
+  if (!file) return;
+  closeProfileMenu();
+
+  const reader = new FileReader();
+  reader.onload = e => {
+    try {
+      const text = String(e.target.result || '').replace(/^\uFEFF/, '');
+      const lines = text.split(/\r?\n/).filter(line => line.trim());
+      if (lines.length < 2) {
+        toast('CSV needs a header row and at least one product row.', 'error');
+        return;
+      }
+
+      const headers = parseCSVRow(lines[0]).map(normalizeCSVHeader);
+      const headerMap = Object.fromEntries(headers.map((header, index) => [header, index]));
+      const hasNameColumn = headers.includes('name') || headers.includes('product') || headers.includes('productname');
+      if (!hasNameColumn) {
+        toast('CSV must include a Name or Product column.', 'error');
+        return;
+      }
+
+      const snapshot = createDataSnapshot();
+      const productsBySku = new Map(products.map(product => [String(product.sku || '').toLowerCase(), product]));
+      const productsByName = new Map(products.map(product => [String(product.name || '').toLowerCase(), product]));
+      let imported = 0;
+      let updated = 0;
+      let skipped = 0;
+
+      for (const line of lines.slice(1)) {
+        const row = parseCSVRow(line);
+        const name = getCSVValue(row, headerMap, ['name', 'product', 'productname']).trim();
+        const skuValue = getCSVValue(row, headerMap, ['sku', 'productsku', 'itemid']).trim();
+        const category = getCSVValue(row, headerMap, ['category']).trim() || 'Uncategorized';
+        const brand = getCSVValue(row, headerMap, ['brand']).trim() || '—';
+        const variant = getCSVValue(row, headerMap, ['variant', 'size']).trim() || '—';
+        const cost = parseFloat(getCSVValue(row, headerMap, ['cost', 'costprice', 'buyprice']).trim());
+        const price = parseFloat(getCSVValue(row, headerMap, ['price', 'sellprice', 'sellingprice']).trim());
+        const stock = parseInt(getCSVValue(row, headerMap, ['stock', 'qty', 'quantity']).trim(), 10);
+        const minStockRaw = getCSVValue(row, headerMap, ['minstock', 'minimumstock', 'reorderlevel']).trim();
+        const minStock = parseInt(minStockRaw, 10);
+
+        if (!name || Number.isNaN(cost) || Number.isNaN(price) || Number.isNaN(stock) || cost <= 0 || price <= 0 || stock < 0 || cost >= price) {
+          skipped++;
+          continue;
+        }
+
+        const normalizedSku = skuValue.toLowerCase();
+        const normalizedName = name.toLowerCase();
+        const existing = (normalizedSku && productsBySku.get(normalizedSku)) || productsByName.get(normalizedName);
+        const sku = skuValue || existing?.sku || `SKU-${String(skuCounter).padStart(3, '0')}`;
+        const nextProduct = {
+          id: existing?.id || nextProdId++,
+          sku,
+          name,
+          brand,
+          variant,
+          category,
+          cost,
+          price,
+          stock,
+          minStock: Number.isNaN(minStock) ? 5 : minStock
+        };
+
+        if (existing) {
+          Object.assign(existing, nextProduct);
+          updated++;
+        } else {
+          products.push(nextProduct);
+          imported++;
+        }
+
+        productsBySku.set(String(sku).toLowerCase(), existing || nextProduct);
+        productsByName.set(normalizedName, existing || nextProduct);
+        skuCounter++;
+      }
+
+      if (!imported && !updated) {
+        toast('No valid product rows were found in that CSV.', 'error');
+        return;
+      }
+
+      saveProducts();
+      addMovementEntry('Imported', 'Inventory', `CSV import finished: ${imported} added, ${updated} updated${skipped ? `, ${skipped} skipped` : ''}.`);
+      render();
+      queueUndo(`CSV import complete: ${imported} added, ${updated} updated${skipped ? `, ${skipped} skipped` : ''}.`, snapshot);
+    } catch (err) {
+      toast('Could not import that CSV file.', 'error');
+    } finally {
+      event.target.value = '';
+    }
+  };
+
+  reader.readAsText(file);
+}
+
 function enhanceProfileMenu() {
   const { profileDropdown } = getAuthElements();
   if (!profileDropdown || profileDropdown.dataset.enhanced === 'true') return;
@@ -253,9 +427,22 @@ function enhanceProfileMenu() {
     }
   }
 
+  let importInput = document.getElementById('import-csv-input');
+  if (!importInput) {
+    importInput = document.createElement('input');
+    importInput.id = 'import-csv-input';
+    importInput.type = 'file';
+    importInput.accept = '.csv,text/csv';
+    importInput.hidden = true;
+    importInput.setAttribute('onchange', 'importProductsCSV(event)');
+    profileDropdown.appendChild(importInput);
+  }
+
   const items = [
     { label: 'Backup data', icon: 'BK', action: 'backupData()' },
     { label: 'Restore backup', icon: 'RS', action: 'openRestorePicker()' },
+    { label: 'Import CSV', icon: 'IMP', action: 'openImportCsvPicker()' },
+    { label: 'Enable Alerts', icon: 'NTF', action: 'requestNotificationAccess()' },
     { label: 'Export CSV', icon: 'CSV', action: 'exportCSV()' },
     { label: 'Export PDF', icon: 'PDF', action: 'exportPDF()' },
     { label: 'Clear data', icon: 'DEL', action: 'clearAllData()', danger: true }
@@ -460,10 +647,85 @@ function render() {
   renderDeadStock();
   renderSmartInsights();
   renderRestockHistory();
+  renderMovementHistory();
   renderCategoryReport();
   renderBreakEven();
   renderGoal();
   renderDateStats();
+}
+
+function addMovementEntry(type, productName, details) {
+  movementHistory.unshift({
+    id: Date.now() + Math.floor(Math.random() * 1000),
+    date: new Date().toISOString(),
+    type,
+    product: productName || 'Inventory',
+    details
+  });
+  movementHistory = movementHistory.slice(0, 250);
+  saveCurrentUserData();
+}
+
+function renderMovementHistory() {
+  const tbody = document.getElementById('movement-body');
+  if (!tbody) return;
+
+  if (!movementHistory.length) {
+    tbody.innerHTML = '<tr><td colspan="4" class="empty">No inventory movements yet.</td></tr>';
+    return;
+  }
+
+  tbody.innerHTML = movementHistory.map(entry => `
+    <tr>
+      <td>${new Date(entry.date).toLocaleString('en-IN', { year: 'numeric', month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' })}</td>
+      <td style="font-weight:600;">${entry.product}</td>
+      <td><span class="badge" style="background:rgba(55,138,221,0.12);color:#378add;">${entry.type}</span></td>
+      <td style="color:var(--muted);">${entry.details}</td>
+    </tr>
+  `).join('');
+}
+
+async function sendBrowserNotification(title, body, tag) {
+  if (!notificationSettings.enabled || !('Notification' in window) || Notification.permission !== 'granted') return;
+
+  if ('serviceWorker' in navigator) {
+    const registration = await navigator.serviceWorker.getRegistration();
+    if (registration) {
+      registration.showNotification(title, {
+        body,
+        tag,
+        icon: './icon-192.png',
+        badge: './icon-192.png'
+      });
+      return;
+    }
+  }
+
+  new Notification(title, { body, tag, icon: './icon-192.png' });
+}
+
+function notifyImportantEvents(force = false) {
+  if (!notificationSettings.enabled || !currentUser) return;
+
+  const today = new Date().toISOString().split('T')[0];
+  const lowStockItems = products.filter(p => p.stock <= p.minStock);
+  const todayProfit = transactions
+    .filter(t => t.date === today)
+    .reduce((sum, t) => sum + t.profit, 0);
+
+  const lowStockKey = `notify:${currentUser.id}:lowStock:${today}`;
+  const goalKey = `notify:${currentUser.id}:goal:${today}`;
+
+  if ((force || !localStorage.getItem(lowStockKey)) && lowStockItems.length && notificationSettings.lowStock) {
+    const names = lowStockItems.slice(0, 3).map(item => item.name).join(', ');
+    sendBrowserNotification('Low stock alert', `${lowStockItems.length} product(s) need restocking: ${names}${lowStockItems.length > 3 ? '...' : ''}`, 'low-stock');
+    localStorage.setItem(lowStockKey, 'sent');
+  }
+
+  if (dailyGoal > 0 && notificationSettings.goal && todayProfit >= dailyGoal && (force || !localStorage.getItem(goalKey))) {
+    sendBrowserNotification('Daily goal reached', `You hit your profit goal with ${fmt(todayProfit)} today.`, 'goal-reached');
+    localStorage.setItem(goalKey, 'sent');
+  }
 }
 
 function cloneData(value) {
@@ -475,10 +737,12 @@ function createDataSnapshot() {
     products: cloneData(products),
     transactions: cloneData(transactions),
     restockHistory: cloneData(restockHistory),
+    movementHistory: cloneData(movementHistory),
     reviewedProducts: cloneData(reviewedProducts),
     dailyGoal,
     currency,
-    skuCounter
+    skuCounter,
+    notificationSettings: cloneData(notificationSettings)
   };
 }
 
@@ -486,10 +750,12 @@ function applyDataSnapshot(snapshot) {
   products = cloneData(snapshot.products || []);
   transactions = cloneData(snapshot.transactions || []);
   restockHistory = cloneData(snapshot.restockHistory || []);
+  movementHistory = cloneData(snapshot.movementHistory || []);
   reviewedProducts = cloneData(snapshot.reviewedProducts || []);
   dailyGoal = parseFloat(snapshot.dailyGoal) || 0;
   currency = snapshot.currency || 'INR';
   skuCounter = snapshot.skuCounter || (products.length + 1);
+  notificationSettings = cloneData(snapshot.notificationSettings || { enabled: false, lowStock: true, goal: true });
 
   saveCurrentUserData();
   const currencySelect = document.getElementById('currency-select');
@@ -572,6 +838,7 @@ function addProduct() {
   products.push({ id: nextProdId++, sku, name, brand, variant, category, cost, price, stock, minStock });
   skuCounter++;
   saveCurrentUserData();
+  addMovementEntry('Added', name, `Created ${sku} with ${stock} units at ${fmt(price)}.`);
   saveProducts();
   clearProductForm();
   render();
@@ -581,6 +848,7 @@ function deleteProduct(id) {
   const product = products.find(p => p.id === id);
   const snapshot = createDataSnapshot();
   products = products.filter(p => p.id !== id);
+  if (product) addMovementEntry('Deleted', product.name, `Removed product ${product.sku || ''}`.trim());
   saveProducts();
   render();
   queueUndo(`${product?.name || 'Product'} removed.`, snapshot);
@@ -630,6 +898,7 @@ function saveEdit(id) {
   p.price = price; p.stock = stock; p.minStock = minStock;
 
   saveProducts();
+  addMovementEntry('Updated', name, `Edited product details. Stock now ${stock}, price ${fmt(price)}.`);
   clearProductForm();
 
   const btn = document.querySelector('.form-section button');
@@ -668,8 +937,10 @@ function sellProduct(id) {
   qtyInput.value  = '';
   if (noteInput) noteInput.value = '';
   saveProducts();
+  addMovementEntry('Sold', product.name, `Sold ${qty} units for ${fmt(total)}${note ? ` with note: ${note}` : ''}.`);
   render();
   toast(`✓ Sold ${qty}x ${product.name} for ${fmt(total)}`);
+  notifyImportantEvents();
 }
 
 function saveProducts() {
@@ -693,13 +964,14 @@ function clearAllData() {
   showConfirm('Delete all data for this account? This cannot be undone.', () => {
     if (!currentUser) return;
     const snapshot = createDataSnapshot();
-    ['products', 'transactions', 'restockHistory', 'reviewed', 'currency', 'skuCounter', 'dailyGoal'].forEach(key => {
+    ['products', 'transactions', 'restockHistory', 'movementHistory', 'reviewed', 'currency', 'skuCounter', 'dailyGoal', 'notificationSettings'].forEach(key => {
       removeUserValue(currentUser.id, key);
     });
-    products = []; transactions = []; restockHistory = []; reviewedProducts = [];
+    products = []; transactions = []; restockHistory = []; movementHistory = []; reviewedProducts = [];
     dailyGoal = 0;
     currency = 'INR';
     skuCounter = 1;
+    notificationSettings = { enabled: false, lowStock: true, goal: true };
     loadCurrency();
     render();
     queueUndo('All account data cleared.', snapshot, 'error');
@@ -728,6 +1000,7 @@ function backupData() {
     products,
     transactions,
     restockHistory,
+    movementHistory,
     reviewedProducts,
     dailyGoal,
     currency,
@@ -756,11 +1029,13 @@ function restoreData(event) {
         products: data.products || [],
         transactions: data.transactions || [],
         restockHistory: data.restockHistory || [],
+        movementHistory: data.movementHistory || [],
         reviewedProducts: data.reviewedProducts || [],
         dailyGoal: parseFloat(data.dailyGoal) || 0,
         currency: data.currency || 'INR',
         skuCounter: (data.products || []).length + 1
       });
+      addMovementEntry('Restored', 'Inventory', 'Restored inventory data from backup file.');
       queueUndo('Backup restored.', snapshot);
     } catch(err) {
       toast('Invalid backup file.', 'error');
@@ -1078,7 +1353,9 @@ function restockProduct(id) {
   costInput.value = '';
   saveCurrentUserData();
   saveProducts();
+  addMovementEntry('Restocked', product.name, `Added ${qty} units at ${fmt(cost)} each.`);
   render();
+  notifyImportantEvents();
   toast(`✓ Restocked ${qty} units of ${product.name}`);
 }
 
@@ -1235,6 +1512,7 @@ window.addEventListener('load', () => {
   fetchExchangeRates();
   render();
   renderDashboard();
+  notifyImportantEvents();
 });
 
 document.addEventListener('keydown', event => {
@@ -1600,6 +1878,7 @@ function deleteTransaction(id) {
   if (product) product.stock += tx.qty;
   transactions = transactions.filter(t => t.id !== id);
   saveProducts();
+  addMovementEntry('Sale Deleted', tx.product, `Removed sale of ${tx.qty} units and restored stock.`);
   render();
   queueUndo(`Sale deleted for ${tx.product}.`, snapshot);
 }
