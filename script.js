@@ -20,6 +20,7 @@ let doughnutChart = null;
 let authMode = 'login';
 let currentUser = null;
 let dailyGoal = 0;
+let pendingUndoTimer = null;
 
 function bufferToHex(buffer) {
   return Array.from(new Uint8Array(buffer))
@@ -462,6 +463,61 @@ function render() {
   renderCategoryReport();
   renderBreakEven();
   renderGoal();
+  renderDateStats();
+}
+
+function cloneData(value) {
+  return JSON.parse(JSON.stringify(value));
+}
+
+function createDataSnapshot() {
+  return {
+    products: cloneData(products),
+    transactions: cloneData(transactions),
+    restockHistory: cloneData(restockHistory),
+    reviewedProducts: cloneData(reviewedProducts),
+    dailyGoal,
+    currency,
+    skuCounter
+  };
+}
+
+function applyDataSnapshot(snapshot) {
+  products = cloneData(snapshot.products || []);
+  transactions = cloneData(snapshot.transactions || []);
+  restockHistory = cloneData(snapshot.restockHistory || []);
+  reviewedProducts = cloneData(snapshot.reviewedProducts || []);
+  dailyGoal = parseFloat(snapshot.dailyGoal) || 0;
+  currency = snapshot.currency || 'INR';
+  skuCounter = snapshot.skuCounter || (products.length + 1);
+
+  saveCurrentUserData();
+  const currencySelect = document.getElementById('currency-select');
+  if (currencySelect) currencySelect.value = currency;
+  render();
+}
+
+function queueUndo(message, snapshot, type = 'info') {
+  if (pendingUndoTimer) {
+    clearTimeout(pendingUndoTimer);
+    pendingUndoTimer = null;
+  }
+
+  toast(message, type, {
+    label: 'Undo',
+    onClick: () => {
+      if (pendingUndoTimer) {
+        clearTimeout(pendingUndoTimer);
+        pendingUndoTimer = null;
+      }
+      applyDataSnapshot(snapshot);
+      toast('Last action undone.');
+    }
+  }, 7000);
+
+  pendingUndoTimer = setTimeout(() => {
+    pendingUndoTimer = null;
+  }, 7000);
 }
 
 function renderStats() {
@@ -522,9 +578,12 @@ function addProduct() {
   toast(`✓ ${name} added (${sku})`);
 }
 function deleteProduct(id) {
+  const product = products.find(p => p.id === id);
+  const snapshot = createDataSnapshot();
   products = products.filter(p => p.id !== id);
   saveProducts();
   render();
+  queueUndo(`${product?.name || 'Product'} removed.`, snapshot);
 }
 function editProduct(id) {
   const p = products.find(p => p.id === id);
@@ -633,6 +692,7 @@ function clearAllData() {
   closeProfileMenu();
   showConfirm('Delete all data for this account? This cannot be undone.', () => {
     if (!currentUser) return;
+    const snapshot = createDataSnapshot();
     ['products', 'transactions', 'restockHistory', 'reviewed', 'currency', 'skuCounter', 'dailyGoal'].forEach(key => {
       removeUserValue(currentUser.id, key);
     });
@@ -642,7 +702,7 @@ function clearAllData() {
     skuCounter = 1;
     loadCurrency();
     render();
-    toast('All data cleared', 'error');
+    queueUndo('All account data cleared.', snapshot, 'error');
   });
 }
 
@@ -691,20 +751,19 @@ function restoreData(event) {
     try {
       const data = JSON.parse(e.target.result);
       if (!confirm('This will replace all current data. Are you sure?')) return;
-      products         = data.products         || [];
-      transactions     = data.transactions     || [];
-      restockHistory   = data.restockHistory   || [];
-      reviewedProducts = data.reviewedProducts || [];
-      dailyGoal        = parseFloat(data.dailyGoal) || 0;
-      skuCounter       = products.length + 1;
-      currency         = data.currency         || 'INR';
-      saveProducts();
-      saveCurrentUserData();
-      document.getElementById('currency-select').value = currency;
-      render();
-      alert('Data restored successfully!');
+      const snapshot = createDataSnapshot();
+      applyDataSnapshot({
+        products: data.products || [],
+        transactions: data.transactions || [],
+        restockHistory: data.restockHistory || [],
+        reviewedProducts: data.reviewedProducts || [],
+        dailyGoal: parseFloat(data.dailyGoal) || 0,
+        currency: data.currency || 'INR',
+        skuCounter: (data.products || []).length + 1
+      });
+      queueUndo('Backup restored.', snapshot);
     } catch(err) {
-      alert('Invalid backup file.');
+      toast('Invalid backup file.', 'error');
     } finally {
       event.target.value = '';
     }
@@ -1232,10 +1291,12 @@ function renderDateStats() {
   const items  = filtered.reduce((s, t) => s + t.qty, 0);
 
   const el = document.getElementById('date-stats');
+  const insightsEl = document.getElementById('date-range-insights');
   if (!el) return;
 
   if (!dateFrom && !dateTo) {
     el.style.display = 'none';
+    if (insightsEl) insightsEl.style.display = 'none';
     return;
   }
 
@@ -1256,6 +1317,72 @@ function renderDateStats() {
     <div class="date-stat-card">
       <div class="date-stat-label">Items Sold</div>
       <div class="date-stat-value">${items}</div>
+    </div>
+  `;
+
+  if (!insightsEl) return;
+
+  if (!filtered.length) {
+    insightsEl.style.display = 'grid';
+    insightsEl.innerHTML = `
+      <div class="range-insight-card empty-state">
+        <div class="range-insight-title">Date Range Insights</div>
+        <div class="range-insight-value">No transactions</div>
+        <div class="range-insight-subtext">Try widening the selected dates to compare category profit and weak products.</div>
+      </div>
+    `;
+    return;
+  }
+
+  const byProduct = {};
+  const byCategory = {};
+
+  filtered.forEach(t => {
+    const product = products.find(p => p.name === t.product);
+    const category = product?.category || 'Uncategorized';
+
+    if (!byProduct[t.product]) byProduct[t.product] = { revenue: 0, cost: 0, profit: 0, items: 0 };
+    if (!byCategory[category]) byCategory[category] = { revenue: 0, profit: 0, items: 0 };
+
+    byProduct[t.product].revenue += t.total;
+    byProduct[t.product].cost += t.totalCost;
+    byProduct[t.product].profit += t.profit;
+    byProduct[t.product].items += t.qty;
+
+    byCategory[category].revenue += t.total;
+    byCategory[category].profit += t.profit;
+    byCategory[category].items += t.qty;
+  });
+
+  const productEntries = Object.entries(byProduct);
+  const categoryEntries = Object.entries(byCategory);
+  const bestProduct = [...productEntries].sort((a, b) => b[1].profit - a[1].profit)[0];
+  const weakestProduct = [...productEntries].sort((a, b) => a[1].profit - b[1].profit)[0];
+  const topCategory = [...categoryEntries].sort((a, b) => b[1].profit - a[1].profit)[0];
+  const avgOrderProfit = filtered.length ? profit / filtered.length : 0;
+  const marginPct = rev > 0 ? ((profit / rev) * 100).toFixed(1) : '0.0';
+
+  insightsEl.style.display = 'grid';
+  insightsEl.innerHTML = `
+    <div class="range-insight-card accent-green">
+      <div class="range-insight-title">Top Category</div>
+      <div class="range-insight-value">${topCategory ? topCategory[0] : '—'}</div>
+      <div class="range-insight-subtext">${topCategory ? `${fmt(topCategory[1].profit)} profit across ${topCategory[1].items} items sold` : 'No category data yet'}</div>
+    </div>
+    <div class="range-insight-card accent-violet">
+      <div class="range-insight-title">Best Product</div>
+      <div class="range-insight-value">${bestProduct ? bestProduct[0] : '—'}</div>
+      <div class="range-insight-subtext">${bestProduct ? `${fmt(bestProduct[1].profit)} profit from ${bestProduct[1].items} units` : 'No product data yet'}</div>
+    </div>
+    <div class="range-insight-card accent-amber">
+      <div class="range-insight-title">Lowest Performer</div>
+      <div class="range-insight-value">${weakestProduct ? weakestProduct[0] : '—'}</div>
+      <div class="range-insight-subtext">${weakestProduct ? `${fmt(weakestProduct[1].profit)} profit on ${fmt(weakestProduct[1].revenue)} revenue` : 'No product data yet'}</div>
+    </div>
+    <div class="range-insight-card accent-slate">
+      <div class="range-insight-title">Range Quality</div>
+      <div class="range-insight-value">${marginPct}% margin</div>
+      <div class="range-insight-subtext">${fmt(avgOrderProfit)} average profit per transaction in this range</div>
     </div>
   `;
 }
@@ -1424,7 +1551,7 @@ function renderBreakEven() {
 }
 
 // Feature 9 — Toast Notifications
-function toast(message, type = 'success') {
+function toast(message, type = 'success', action = null, duration = 2600) {
   const existing = document.getElementById('toast');
   if (existing) existing.remove();
 
@@ -1443,21 +1570,38 @@ function toast(message, type = 'success') {
       <div class="toast-label">${type === 'error' ? 'Action needed' : type === 'info' ? 'Heads up' : 'Success'}</div>
       <div class="toast-message">${message}</div>
     </div>
+    ${action ? `<button type="button" class="toast-action">${action.label}</button>` : ''}
     <div class="toast-progress"></div>
   `;
   document.body.appendChild(t);
-  setTimeout(() => {
+  const progress = t.querySelector('.toast-progress');
+  if (progress) progress.style.animationDuration = `${duration}ms`;
+
+  const dismiss = setTimeout(() => {
     t.classList.add('toast-exit');
     setTimeout(() => t.remove(), 320);
-  }, 2600);
+  }, duration);
+
+  if (action) {
+    t.querySelector('.toast-action')?.addEventListener('click', () => {
+      clearTimeout(dismiss);
+      t.remove();
+      action.onClick();
+    });
+  }
 }
 
 // Feature 10 — Delete Transaction
 function deleteTransaction(id) {
+  const tx = transactions.find(t => t.id === id);
+  if (!tx) return;
+  const snapshot = createDataSnapshot();
+  const product = products.find(p => p.name === tx.product);
+  if (product) product.stock += tx.qty;
   transactions = transactions.filter(t => t.id !== id);
   saveProducts();
   render();
-  toast('Transaction deleted');
+  queueUndo(`Sale deleted for ${tx.product}.`, snapshot);
 }
 
 // Feature 11 — Profit Goal Tracker

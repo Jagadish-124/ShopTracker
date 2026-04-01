@@ -1042,6 +1042,65 @@ body.light .section-title {
   letter-spacing: -0.5px;
 }
 
+.range-insights-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(210px, 1fr));
+  gap: 14px;
+  margin-bottom: 24px;
+}
+
+.range-insight-card {
+  position: relative;
+  overflow: hidden;
+  padding: 18px;
+  border-radius: 16px;
+  border: 1px solid rgba(255,255,255,0.08);
+  background:
+    linear-gradient(180deg, rgba(255,255,255,0.05), rgba(255,255,255,0.02)),
+    var(--card-bg);
+  box-shadow: var(--shadow-sm);
+}
+
+.range-insight-card::before {
+  content: '';
+  position: absolute;
+  inset: 0 auto 0 0;
+  width: 4px;
+  background: rgba(255,255,255,0.18);
+}
+
+.range-insight-card.accent-green::before { background: linear-gradient(180deg, #1D9E75, #65d6b0); }
+.range-insight-card.accent-violet::before { background: linear-gradient(180deg, #7c6af7, #a597ff); }
+.range-insight-card.accent-amber::before { background: linear-gradient(180deg, #eab308, #f8d85d); }
+.range-insight-card.accent-slate::before { background: linear-gradient(180deg, #378add, #78b6ff); }
+
+.range-insight-card.empty-state {
+  grid-column: 1 / -1;
+}
+
+.range-insight-title {
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.14em;
+  color: var(--muted);
+  font-weight: 700;
+  margin-bottom: 10px;
+}
+
+.range-insight-value {
+  font-size: 22px;
+  font-weight: 800;
+  color: var(--text);
+  line-height: 1.1;
+}
+
+.range-insight-subtext {
+  margin-top: 8px;
+  font-size: 13px;
+  line-height: 1.45;
+  color: var(--muted);
+}
+
 /* Toast */
 @keyframes slideUp {
   from { transform: translateY(20px); opacity: 0; }
@@ -1520,7 +1579,7 @@ tbody tr:hover {
   right: 24px;
   bottom: 24px;
   display: grid;
-  grid-template-columns: 40px 1fr;
+  grid-template-columns: 40px 1fr auto;
   align-items: center;
   gap: 14px;
   min-width: 280px;
@@ -1570,6 +1629,24 @@ tbody tr:hover {
   font-size: 14px;
   font-weight: 600;
   line-height: 1.35;
+}
+
+.toast-action {
+  border: 0;
+  padding: 10px 14px;
+  border-radius: 12px;
+  background: rgba(255,255,255,0.16);
+  color: #fff;
+  font: inherit;
+  font-size: 12px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  cursor: pointer;
+}
+
+.toast-action:hover {
+  background: rgba(255,255,255,0.24);
 }
 
 .toast-progress {
