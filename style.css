@@ -365,12 +365,23 @@ body {
   }
   
   /* Table */
-  .table-wrap {
+.table-wrap {
     background: var(--card-bg);
     border-radius: 16px;
     border: 1px solid var(--card-border);
     overflow: hidden;
+    position: relative;
   }
+
+.table-wrap::before {
+  content: '';
+  position: absolute;
+  inset: 0 0 auto 0;
+  height: 3px;
+  background: linear-gradient(90deg, var(--green), rgba(124,106,247,0.9), rgba(234,179,8,0.85));
+  z-index: 2;
+  pointer-events: none;
+}
   
   table {
     width: 100%;
@@ -378,7 +389,11 @@ body {
     font-size: 14px;
   }
   
-  thead { background: var(--input-bg); }
+  thead {
+    background:
+      linear-gradient(180deg, rgba(29,158,117,0.16), rgba(29,158,117,0.04)),
+      var(--input-bg);
+  }
   
   th {
     text-align: left;
@@ -386,9 +401,9 @@ body {
     font-size: 11px;
     text-transform: uppercase;
     letter-spacing: 0.08em;
-    color: var(--muted);
-    border-bottom: 1px solid var(--card-border);
-    font-weight: 600;
+    color: color-mix(in srgb, var(--text) 74%, var(--green) 26%);
+    border-bottom: 1px solid rgba(29,158,117,0.18);
+    font-weight: 700;
   }
   
   td {
@@ -442,25 +457,49 @@ body {
   }
   /* Section Title */
 .section-title {
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
   font-size: 12px;
   text-transform: uppercase;
-  letter-spacing: 0.1em;
-  color: var(--muted);
-  font-weight: 700;
-  margin-bottom: 12px;
-  padding-left: 2px;
+  letter-spacing: 0.14em;
+  color: color-mix(in srgb, var(--text) 78%, var(--green) 22%);
+  font-weight: 800;
+  margin-bottom: 14px;
+  padding: 10px 16px;
   position: relative;
+  border-radius: 999px;
+  border: 1px solid rgba(29,158,117,0.18);
+  background:
+    linear-gradient(135deg, rgba(29,158,117,0.16), rgba(124,106,247,0.08)),
+    rgba(255,255,255,0.02);
+  box-shadow:
+    inset 0 1px 0 rgba(255,255,255,0.08),
+    0 10px 24px rgba(0,0,0,0.16);
 }
 
 .section-title::before {
   content: '';
-  display: inline-block;
-  width: 3px;
-  height: 12px;
-  background: var(--green);
-  border-radius: 2px;
-  margin-right: 8px;
-  vertical-align: middle;
+  width: 10px;
+  height: 10px;
+  background: radial-gradient(circle, #7ef0c8 0 35%, var(--green) 36% 100%);
+  border-radius: 999px;
+  box-shadow: 0 0 0 6px rgba(29,158,117,0.12);
+  flex: 0 0 auto;
+}
+
+.section-title .dead-count-badge {
+  margin-left: 2px;
+}
+
+body.light .section-title {
+  background:
+    linear-gradient(135deg, rgba(29,158,117,0.12), rgba(124,106,247,0.06)),
+    rgba(255,255,255,0.9);
+  box-shadow:
+    inset 0 1px 0 rgba(255,255,255,0.65),
+    0 10px 24px rgba(15,23,42,0.08);
 }
 
 /* Sell Button */
@@ -1405,7 +1444,9 @@ h1,
 }
 
 thead {
-  background: linear-gradient(180deg, rgba(255,255,255,0.05), rgba(255,255,255,0.01));
+  background:
+    linear-gradient(180deg, rgba(29,158,117,0.18), rgba(124,106,247,0.08)),
+    linear-gradient(180deg, rgba(255,255,255,0.05), rgba(255,255,255,0.01));
 }
 
 th {
@@ -1413,12 +1454,17 @@ th {
   top: 0;
   z-index: 1;
   backdrop-filter: blur(12px);
-  background: rgba(12, 15, 24, 0.92);
+  background:
+    linear-gradient(180deg, rgba(16, 24, 32, 0.96), rgba(12, 15, 24, 0.92));
   padding: 16px 18px;
+  color: color-mix(in srgb, var(--text) 72%, var(--green) 28%);
+  border-bottom: 1px solid rgba(29,158,117,0.22);
+  box-shadow: inset 0 -1px 0 rgba(255,255,255,0.03);
 }
 
 body.light th {
-  background: rgba(255, 255, 255, 0.92);
+  background:
+    linear-gradient(180deg, rgba(245, 255, 251, 0.98), rgba(255, 255, 255, 0.94));
 }
 
 td {
@@ -1645,6 +1691,10 @@ tbody tr:hover {
 
 /* Header polish and visibility fixes */
 .page-actions {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 8px;
   position: relative;
 }
 
@@ -1658,8 +1708,9 @@ tbody tr:hover {
   position: relative;
   display: inline-flex;
   justify-content: flex-end;
-  margin-top: 10px;
+  margin-top: 0;
   align-self: flex-end;
+  order: 1;
 }
 
 .profile-chip {
@@ -1774,10 +1825,18 @@ body.light .profit-card h2 {
   width: 100%;
   justify-content: flex-end !important;
   align-items: center;
+  order: 2;
 }
 
 #currency-select {
   order: 1;
+  min-width: 122px;
+  box-shadow: var(--shadow-sm);
+}
+
+#rates-badge {
+  order: 3;
+  align-self: flex-end;
 }
 
 .page-actions-row > .export-btn,
@@ -1818,6 +1877,7 @@ body.light .user-badge {
   .page-actions {
     width: 100%;
     min-width: 0;
+    align-items: flex-start;
   }
 
   .page-actions-row {
@@ -1827,5 +1887,10 @@ body.light .user-badge {
   .profile-menu {
     width: 100%;
     justify-content: flex-start;
+    align-self: flex-start;
+  }
+
+  #rates-badge {
+    align-self: flex-start;
   }
 }
