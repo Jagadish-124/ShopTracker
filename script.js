@@ -221,6 +221,62 @@ function closeProfileMenu() {
   profileChip.setAttribute('aria-expanded', 'false');
 }
 
+function openRestorePicker() {
+  closeProfileMenu();
+  document.getElementById('restore-file-input')?.click();
+}
+
+function enhanceProfileMenu() {
+  const { profileDropdown } = getAuthElements();
+  if (!profileDropdown || profileDropdown.dataset.enhanced === 'true') return;
+
+  const actionRow = document.querySelector('.page-actions-row');
+  const backupBtn = actionRow?.querySelector('button[onclick="backupData()"]');
+  const restoreLabel = actionRow?.querySelector('label.export-btn');
+  const csvBtn = actionRow?.querySelector('button[onclick="exportCSV()"]');
+  const pdfBtn = actionRow?.querySelector('button[onclick="exportPDF()"]');
+  const clearBtn = actionRow?.querySelector('button[onclick="clearAllData()"]');
+  const themeItem = profileDropdown.querySelector('button[onclick="toggleTheme()"]');
+
+  [backupBtn, restoreLabel, csvBtn, pdfBtn, clearBtn].forEach(el => {
+    if (el) el.style.display = 'none';
+  });
+
+  let restoreInput = document.getElementById('restore-file-input');
+  if (!restoreInput && restoreLabel) {
+    restoreInput = restoreLabel.querySelector('input[type="file"]');
+    if (restoreInput) {
+      restoreInput.id = 'restore-file-input';
+      restoreInput.hidden = true;
+      profileDropdown.appendChild(restoreInput);
+    }
+  }
+
+  const items = [
+    { label: 'Backup data', icon: 'BK', action: 'backupData()' },
+    { label: 'Restore backup', icon: 'RS', action: 'openRestorePicker()' },
+    { label: 'Export CSV', icon: 'CSV', action: 'exportCSV()' },
+    { label: 'Export PDF', icon: 'PDF', action: 'exportPDF()' },
+    { label: 'Clear data', icon: 'DEL', action: 'clearAllData()', danger: true }
+  ];
+
+  items.forEach(item => {
+    const button = document.createElement('button');
+    button.type = 'button';
+    button.className = `profile-dropdown-item${item.danger ? ' danger' : ''}`;
+    button.setAttribute('onclick', item.action);
+    button.innerHTML = `<span class="profile-dropdown-icon">${item.icon}</span><span>${item.label}</span>`;
+    profileDropdown.insertBefore(button, themeItem || profileDropdown.firstChild);
+  });
+
+  const divider = document.createElement('div');
+  divider.className = 'profile-dropdown-divider';
+  divider.setAttribute('aria-hidden', 'true');
+  profileDropdown.insertBefore(divider, themeItem || profileDropdown.firstChild);
+
+  profileDropdown.dataset.enhanced = 'true';
+}
+
 function switchAuthMode() {
   updateAuthMode(authMode === 'signup' ? 'login' : 'signup');
 }
@@ -574,6 +630,7 @@ function clearProductForm() {
 }
 
 function clearAllData() {
+  closeProfileMenu();
   showConfirm('Delete all data for this account? This cannot be undone.', () => {
     if (!currentUser) return;
     ['products', 'transactions', 'restockHistory', 'reviewed', 'currency', 'skuCounter', 'dailyGoal'].forEach(key => {
@@ -605,6 +662,7 @@ function setSort(val) {
 }
 
 function backupData() {
+  closeProfileMenu();
   const data = {
     user: currentUser ? { id: currentUser.id, name: currentUser.name, email: currentUser.email } : null,
     products,
@@ -627,6 +685,7 @@ function backupData() {
 function restoreData(event) {
   const file   = event.target.files[0];
   if (!file) return;
+  closeProfileMenu();
   const reader = new FileReader();
   reader.onload = e => {
     try {
@@ -646,6 +705,8 @@ function restoreData(event) {
       alert('Data restored successfully!');
     } catch(err) {
       alert('Invalid backup file.');
+    } finally {
+      event.target.value = '';
     }
   };
   reader.readAsText(file);
@@ -980,6 +1041,7 @@ function renderRestockHistory() {
 }
 
 function exportCSV() {
+  closeProfileMenu();
   const rows = [
     ['--- SALES TRANSACTIONS ---'],
     ['Date', 'Product', 'Qty', 'Unit Price', 'Total', 'Cost', 'Profit'],
@@ -1000,6 +1062,7 @@ function exportCSV() {
 }
 
 function exportPDF() {
+  closeProfileMenu();
   const { jsPDF } = window.jspdf;
   const doc    = new jsPDF();
   const today  = new Date().toISOString().split('T')[0];
@@ -1105,6 +1168,7 @@ function syncProfileMenuTheme() {
 
 window.addEventListener('load', () => {
   initAuth();
+  enhanceProfileMenu();
   loadTheme();
   updateThemeButton();
   syncProfileMenuTheme();
