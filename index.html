@@ -45,6 +45,22 @@
         <button id="auth-switch-btn" type="button" class="auth-secondary-btn" onclick="switchAuthMode()" style="display:none;">
           Need to create an account?
         </button>
+        <div id="auth-profile-menu" class="profile-menu" style="display:none;">
+          <button id="auth-profile-chip" class="user-badge profile-chip" type="button" aria-haspopup="menu" aria-expanded="false">
+            <span id="auth-current-user-badge" class="profile-chip-label"></span>
+            <span class="profile-chip-caret">▾</span>
+          </button>
+          <div id="profile-dropdown" class="profile-dropdown" role="menu">
+            <button type="button" class="profile-dropdown-item" onclick="toggleTheme()">
+              <span class="profile-dropdown-icon" id="theme-menu-icon">✺</span>
+              <span id="theme-menu-label">Switch to light mode</span>
+            </button>
+            <button type="button" class="profile-dropdown-item danger" onclick="logout()">
+              <span class="profile-dropdown-icon">⎋</span>
+              <span>Sign out</span>
+            </button>
+          </div>
+        </div>
       </div>
       <div id="auth-message" class="auth-message"></div>
     </div>
@@ -60,7 +76,6 @@
     </div>
     <div class="page-actions" style="display:flex;flex-direction:column;gap:4px;align-items:flex-end;">
       <div class="page-actions-row" style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;justify-content:flex-end;">
-        <span id="current-user-badge" class="user-badge" style="display:none;"></span>
         <select onchange="setCurrency(this.value)" id="currency-select"
           style="height:36px;padding:0 10px;border:1px solid var(--card-border);border-radius:8px;background:var(--input-bg);color:var(--text);font-size:13px;cursor:pointer;outline:none;">
           <option value="INR">₹ INR</option>
@@ -79,7 +94,24 @@
         <button onclick="exportCSV()" class="export-btn csv-btn">⬇ Export CSV</button>
         <button onclick="exportPDF()" class="export-btn pdf-btn">⬇ Export PDF</button>
         <button onclick="clearAllData()" class="clear-btn">🗑 Clear All Data</button>
+        <span id="current-user-badge" class="user-badge" style="display:none;"></span>
       </div>
+        <div id="header-profile-menu" class="profile-menu" style="display:none;">
+          <button id="header-profile-chip" class="user-badge profile-chip" type="button" aria-haspopup="menu" aria-expanded="false" onclick="toggleProfileMenu()">
+            <span id="header-current-user-badge" class="profile-chip-label"></span>
+            <span class="profile-chip-caret">▾</span>
+          </button>
+          <div id="header-profile-dropdown" class="profile-dropdown" role="menu">
+            <button type="button" class="profile-dropdown-item" onclick="toggleTheme()">
+              <span class="profile-dropdown-icon" id="header-theme-menu-icon">✺</span>
+              <span id="header-theme-menu-label">Switch to light mode</span>
+            </button>
+            <button type="button" class="profile-dropdown-item danger" onclick="logout()">
+              <span class="profile-dropdown-icon">⎋</span>
+              <span>Sign out</span>
+            </button>
+          </div>
+        </div>
       <small id="rates-badge" style="font-size:10px;color:#1D9E75;font-weight:600;letter-spacing:0.05em;">Rates cached</small>
     </div>
   </div>

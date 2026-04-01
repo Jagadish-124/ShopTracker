@@ -151,8 +151,12 @@ function getAuthElements() {
     submit: document.getElementById('auth-submit-btn'),
     switchBtn: document.getElementById('auth-switch-btn'),
     message: document.getElementById('auth-message'),
-    logout: document.getElementById('logout-btn'),
-    userBadge: document.getElementById('current-user-badge')
+    profileMenu: document.getElementById('header-profile-menu'),
+    profileChip: document.getElementById('header-profile-chip'),
+    profileDropdown: document.getElementById('header-profile-dropdown'),
+    userBadge: document.getElementById('header-current-user-badge'),
+    themeMenuIcon: document.getElementById('header-theme-menu-icon'),
+    themeMenuLabel: document.getElementById('header-theme-menu-label')
   };
 }
 
@@ -189,16 +193,32 @@ function updateAuthMode(mode) {
 }
 
 function updateAuthUI() {
-  const { overlay, shell, logout, userBadge } = getAuthElements();
+  const { overlay, shell, profileMenu, profileChip, profileDropdown, userBadge } = getAuthElements();
   const authed = isAuthenticated();
 
   if (overlay) overlay.style.display = authed ? 'none' : 'flex';
   if (shell) shell.classList.toggle('app-shell-hidden', !authed);
-  if (logout) logout.style.display = authed ? 'inline-flex' : 'none';
+  if (profileMenu) profileMenu.style.display = authed && currentUser ? 'inline-flex' : 'none';
   if (userBadge) {
-    userBadge.style.display = authed && currentUser ? 'inline-flex' : 'none';
     userBadge.textContent = currentUser ? currentUser.name || currentUser.email : '';
   }
+  if (!authed && profileMenu) profileMenu.style.display = 'none';
+  if (profileChip) profileChip.setAttribute('aria-expanded', 'false');
+  if (profileDropdown) profileDropdown.classList.remove('open');
+}
+
+function toggleProfileMenu() {
+  const { profileDropdown, profileChip } = getAuthElements();
+  if (!profileDropdown || !profileChip) return;
+  const open = profileDropdown.classList.toggle('open');
+  profileChip.setAttribute('aria-expanded', String(open));
+}
+
+function closeProfileMenu() {
+  const { profileDropdown, profileChip } = getAuthElements();
+  if (!profileDropdown || !profileChip) return;
+  profileDropdown.classList.remove('open');
+  profileChip.setAttribute('aria-expanded', 'false');
 }
 
 function switchAuthMode() {
@@ -285,6 +305,7 @@ async function handleAuthAction() {
 }
 
 function logout() {
+  closeProfileMenu();
   sessionStorage.removeItem('isAuthenticated');
   setCurrentUserId(null);
   currentUser = null;
@@ -1052,6 +1073,8 @@ function toggleTheme() {
   const isLight = document.body.classList.toggle('light');
   document.getElementById('theme-btn').textContent = isLight ? '☀️' : '🌙';
   localStorage.setItem('theme', isLight ? 'light' : 'dark');
+  updateThemeButton();
+  syncProfileMenuTheme();
 }
 
 function loadTheme() {
@@ -1060,11 +1083,31 @@ function loadTheme() {
     document.body.classList.add('light');
     document.getElementById('theme-btn').textContent = '☀️';
   }
+  syncProfileMenuTheme();
+}
+
+function updateThemeButton() {
+  const themeBtn = document.getElementById('theme-btn');
+  if (!themeBtn) return;
+  const isLight = document.body.classList.contains('light');
+  themeBtn.textContent = isLight ? '☾' : '✺';
+  themeBtn.title = isLight ? 'Switch to dark mode' : 'Switch to light mode';
+  themeBtn.setAttribute('aria-label', themeBtn.title);
+}
+
+function syncProfileMenuTheme() {
+  const { themeMenuIcon, themeMenuLabel } = getAuthElements();
+  const isLight = document.body.classList.contains('light');
+  if (themeMenuIcon) themeMenuIcon.textContent = isLight ? '☾' : '✺';
+  if (themeMenuLabel) themeMenuLabel.textContent = isLight ? 'Switch to dark mode' : 'Switch to light mode';
+  closeProfileMenu();
 }
 
 window.addEventListener('load', () => {
   initAuth();
   loadTheme();
+  updateThemeButton();
+  syncProfileMenuTheme();
   loadCurrency();
   fetchExchangeRates();
   render();
@@ -1072,9 +1115,16 @@ window.addEventListener('load', () => {
 });
 
 document.addEventListener('keydown', event => {
+  if (event.key === 'Escape') closeProfileMenu();
   if (event.key !== 'Enter') return;
   if (document.getElementById('auth-overlay')?.style.display === 'none') return;
   handleAuthAction();
+});
+
+document.addEventListener('click', event => {
+  const { profileMenu } = getAuthElements();
+  if (!profileMenu) return;
+  if (!profileMenu.contains(event.target)) closeProfileMenu();
 });
 
 // Feature 4 — Date Range Filter
