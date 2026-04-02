@@ -23,6 +23,14 @@ let currentUser = null;
 let dailyGoal = 0;
 let pendingUndoTimer = null;
 let notificationSettings = { enabled: false, lowStock: true, goal: true };
+const FEATURE_PANEL_KEY = 'featurePanels';
+const featurePanelDefaults = {
+  analytics: false,
+  stock: false,
+  timeline: false,
+  reports: false
+};
+let featurePanels = { ...featurePanelDefaults };
 
 function bufferToHex(buffer) {
   return Array.from(new Uint8Array(buffer))
@@ -126,6 +134,7 @@ function loadCurrentUserData() {
   skuCounter = parseInt(getUserValue(currentUser.id, 'skuCounter', 1)) || 1;
   dailyGoal = parseFloat(getUserValue(currentUser.id, 'dailyGoal', 0)) || 0;
   notificationSettings = getUserValue(currentUser.id, 'notificationSettings', { enabled: false, lowStock: true, goal: true });
+  hydrateProductLinks();
   nextProdId = Math.max(Date.now(), ...products.map(p => Number(p.id) || 0)) + 1;
 
   const currencySelect = document.getElementById('currency-select');
@@ -143,6 +152,125 @@ function saveCurrentUserData() {
   setUserValue(currentUser.id, 'skuCounter', skuCounter);
   setUserValue(currentUser.id, 'dailyGoal', dailyGoal);
   setUserValue(currentUser.id, 'notificationSettings', notificationSettings);
+}
+
+function loadFeaturePanels() {
+  try {
+    const saved = JSON.parse(localStorage.getItem(FEATURE_PANEL_KEY));
+    featurePanels = { ...featurePanelDefaults, ...(saved || {}) };
+  } catch {
+    featurePanels = { ...featurePanelDefaults };
+  }
+}
+
+function saveFeaturePanels() {
+  localStorage.setItem(FEATURE_PANEL_KEY, JSON.stringify(featurePanels));
+}
+
+function applyFeaturePanels() {
+  Object.entries(featurePanels).forEach(([panel, open]) => {
+    const section = document.getElementById(`feature-${panel}`);
+    const button = document.getElementById(`toggle-${panel}`);
+    if (section) section.classList.toggle('feature-panel-hidden', !open);
+    if (button) {
+      button.classList.toggle('active', open);
+      button.setAttribute('aria-pressed', String(open));
+    }
+  });
+}
+
+function toggleFeaturePanel(panel) {
+  if (!(panel in featurePanels)) return;
+  featurePanels[panel] = !featurePanels[panel];
+  saveFeaturePanels();
+  applyFeaturePanels();
+
+  if (panel === 'analytics' && !featurePanels[panel]) {
+    if (barChart) {
+      barChart.destroy();
+      barChart = null;
+    }
+    if (doughnutChart) {
+      doughnutChart.destroy();
+      doughnutChart = null;
+    }
+  }
+
+  if (featurePanels[panel]) {
+    if (panel === 'analytics') renderDashboard();
+    if (panel === 'stock') {
+      renderDeadStock();
+      renderRestockHistory();
+    }
+    if (panel === 'timeline') renderMovementHistory();
+    if (panel === 'reports') {
+      renderBreakEven();
+      renderCategoryReport();
+      renderDateStats();
+    }
+  }
+}
+
+function hydrateProductLinks() {
+  const nameMap = new Map(products.map(product => [product.name, product]));
+
+  transactions = transactions.map(tx => {
+    if (tx.productId && tx.category && tx.sku) return tx;
+    const product = nameMap.get(tx.product);
+    return product ? {
+      ...tx,
+      productId: tx.productId || product.id,
+      sku: tx.sku || product.sku || '',
+      category: tx.category || product.category || 'Uncategorized'
+    } : tx;
+  });
+
+  restockHistory = restockHistory.map(entry => {
+    if (entry.productId && entry.category && entry.sku) return entry;
+    const product = nameMap.get(entry.product);
+    return product ? {
+      ...entry,
+      productId: entry.productId || product.id,
+      sku: entry.sku || product.sku || '',
+      category: entry.category || product.category || 'Uncategorized'
+    } : entry;
+  });
+}
+
+function getRecordProductId(record) {
+  return record?.productId ?? null;
+}
+
+function findProductByRecord(record) {
+  const productId = getRecordProductId(record);
+  if (productId !== null) {
+    const byId = products.find(product => product.id === productId);
+    if (byId) return byId;
+  }
+
+  return products.find(product => product.name === record?.product) || null;
+}
+
+function getRecordProductName(record) {
+  return findProductByRecord(record)?.name || record?.product || 'Unknown product';
+}
+
+function getRecordCategory(record) {
+  return findProductByRecord(record)?.category || record?.category || 'Uncategorized';
+}
+
+function matchesProductRecord(record, product) {
+  if (!record || !product) return false;
+  const productId = getRecordProductId(record);
+  return productId !== null ? productId === product.id : record.product === product.name;
+}
+
+function hasChartSupport() {
+  return typeof window.Chart === 'function';
+}
+
+function hasPdfSupport() {
+  return !!window.jspdf?.jsPDF;
 }
 
 function getAuthElements() {
@@ -341,6 +469,8 @@ function importProductsCSV(event) {
         const category = getCSVValue(row, headerMap, ['category']).trim() || 'Uncategorized';
         const brand = getCSVValue(row, headerMap, ['brand']).trim() || '—';
         const variant = getCSVValue(row, headerMap, ['variant', 'size']).trim() || '—';
+        const batchNumber = getCSVValue(row, headerMap, ['batch', 'batchnumber', 'lot', 'lotnumber']).trim();
+        const expiryDate = getCSVValue(row, headerMap, ['expiry', 'expirydate', 'useby', 'bestbefore']).trim();
         const cost = parseFloat(getCSVValue(row, headerMap, ['cost', 'costprice', 'buyprice']).trim());
         const price = parseFloat(getCSVValue(row, headerMap, ['price', 'sellprice', 'sellingprice']).trim());
         const stock = parseInt(getCSVValue(row, headerMap, ['stock', 'qty', 'quantity']).trim(), 10);
@@ -363,6 +493,8 @@ function importProductsCSV(event) {
           brand,
           variant,
           category,
+          batchNumber,
+          expiryDate,
           cost,
           price,
           stock,
@@ -641,17 +773,51 @@ function updateRatesBadge(text) {
 
 function render() {
   renderStats();
-  renderDashboard();
+  if (featurePanels.analytics) renderDashboard();
   renderProducts();
   renderTransactions();
   renderDeadStock();
   renderSmartInsights();
   renderRestockHistory();
+  renderExpiryAlert();
   renderMovementHistory();
   renderCategoryReport();
   renderBreakEven();
   renderGoal();
   renderDateStats();
+}
+
+function getDaysToExpiry(expiryDate) {
+  if (!expiryDate) return null;
+  const today = new Date();
+  today.setHours(0, 0, 0, 0);
+  const expiry = new Date(expiryDate);
+  expiry.setHours(0, 0, 0, 0);
+  if (Number.isNaN(expiry.getTime())) return null;
+  return Math.ceil((expiry - today) / (1000 * 60 * 60 * 24));
+}
+
+function renderExpiryAlert() {
+  const banner = document.getElementById('expiry-banner');
+  const list = document.getElementById('expiry-list');
+  if (!banner || !list) return;
+
+  const expiringItems = products
+    .map(product => ({ ...product, daysToExpiry: getDaysToExpiry(product.expiryDate) }))
+    .filter(product => product.daysToExpiry !== null && product.daysToExpiry >= 0 && product.daysToExpiry <= 30)
+    .sort((a, b) => a.daysToExpiry - b.daysToExpiry);
+
+  if (!expiringItems.length) {
+    banner.style.display = 'none';
+    return;
+  }
+
+  banner.style.display = 'block';
+  list.innerHTML = expiringItems.map(product => `
+    <span class="restock-tag expiry-tag">
+      ${product.name} â€” ${product.daysToExpiry === 0 ? 'Expires today' : `${product.daysToExpiry} day${product.daysToExpiry === 1 ? '' : 's'} left`}
+    </span>
+  `).join('');
 }
 
 function addMovementEntry(type, productName, details) {
@@ -709,17 +875,28 @@ function notifyImportantEvents(force = false) {
 
   const today = new Date().toISOString().split('T')[0];
   const lowStockItems = products.filter(p => p.stock <= p.minStock);
+  const expiringItems = products.filter(p => {
+    const daysToExpiry = getDaysToExpiry(p.expiryDate);
+    return daysToExpiry !== null && daysToExpiry >= 0 && daysToExpiry <= 30;
+  });
   const todayProfit = transactions
     .filter(t => t.date === today)
     .reduce((sum, t) => sum + t.profit, 0);
 
   const lowStockKey = `notify:${currentUser.id}:lowStock:${today}`;
+  const expiryKey = `notify:${currentUser.id}:expiry:${today}`;
   const goalKey = `notify:${currentUser.id}:goal:${today}`;
 
   if ((force || !localStorage.getItem(lowStockKey)) && lowStockItems.length && notificationSettings.lowStock) {
     const names = lowStockItems.slice(0, 3).map(item => item.name).join(', ');
     sendBrowserNotification('Low stock alert', `${lowStockItems.length} product(s) need restocking: ${names}${lowStockItems.length > 3 ? '...' : ''}`, 'low-stock');
     localStorage.setItem(lowStockKey, 'sent');
+  }
+
+  if ((force || !localStorage.getItem(expiryKey)) && expiringItems.length) {
+    const names = expiringItems.slice(0, 3).map(item => item.name).join(', ');
+    sendBrowserNotification('Near expiry alert', `${expiringItems.length} product(s) are nearing expiry: ${names}${expiringItems.length > 3 ? '...' : ''}`, 'near-expiry');
+    localStorage.setItem(expiryKey, 'sent');
   }
 
   if (dailyGoal > 0 && notificationSettings.goal && todayProfit >= dailyGoal && (force || !localStorage.getItem(goalKey))) {
@@ -825,6 +1002,8 @@ function addProduct() {
   const price    = parseFloat(document.getElementById('prod-price').value);
   const stock    = parseInt(document.getElementById('prod-stock').value);
   const minStock = parseInt(document.getElementById('prod-min').value) || 5;
+  const batchNumber = document.getElementById('prod-batch').value.trim();
+  const expiryDate = document.getElementById('prod-expiry').value;
   const skuInput = document.getElementById('prod-sku').value.trim();
   const sku      = skuInput || `SKU-${String(skuCounter).padStart(3, '0')}`;
 
@@ -835,7 +1014,7 @@ function addProduct() {
     toast('Selling price must be greater than cost price', 'error'); return;
   }
 
-  products.push({ id: nextProdId++, sku, name, brand, variant, category, cost, price, stock, minStock });
+  products.push({ id: nextProdId++, sku, name, brand, variant, category, cost, price, stock, minStock, batchNumber, expiryDate });
   skuCounter++;
   saveCurrentUserData();
   addMovementEntry('Added', name, `Created ${sku} with ${stock} units at ${fmt(price)}.`);
@@ -866,6 +1045,8 @@ function editProduct(id) {
   document.getElementById('prod-price').value    = p.price;
   document.getElementById('prod-stock').value    = p.stock;
   document.getElementById('prod-min').value      = p.minStock;
+  document.getElementById('prod-batch').value    = p.batchNumber || '';
+  document.getElementById('prod-expiry').value   = p.expiryDate || '';
 
   const btn = document.querySelector('.form-section button');
   btn.textContent = '💾 Save Edit';
@@ -885,6 +1066,8 @@ function saveEdit(id) {
   const price    = parseFloat(document.getElementById('prod-price').value);
   const stock    = parseInt(document.getElementById('prod-stock').value);
   const minStock = parseInt(document.getElementById('prod-min').value) || 5;
+  const batchNumber = document.getElementById('prod-batch').value.trim();
+  const expiryDate = document.getElementById('prod-expiry').value;
 
   if (!name || isNaN(cost) || cost <= 0 || isNaN(price) || price <= 0 || isNaN(stock) || stock < 0) {
     toast('Fill all fields correctly', 'error'); return;
@@ -896,6 +1079,7 @@ function saveEdit(id) {
   p.name = name; p.category = category; p.brand = brand;
   p.variant = variant; p.sku = sku; p.cost = cost;
   p.price = price; p.stock = stock; p.minStock = minStock;
+  p.batchNumber = batchNumber; p.expiryDate = expiryDate;
 
   saveProducts();
   addMovementEntry('Updated', name, `Edited product details. Stock now ${stock}, price ${fmt(price)}.`);
@@ -929,7 +1113,11 @@ function sellProduct(id) {
 
   transactions.unshift({
     id: Date.now(),
-    date, product: product.name,
+    date,
+    productId: product.id,
+    product: product.name,
+    sku: product.sku || '',
+    category: product.category || 'Uncategorized',
     qty, cost: product.cost, price: product.price,
     total, totalCost, profit, note
   });
@@ -957,6 +1145,8 @@ function clearProductForm() {
   document.getElementById('prod-price').value    = '';
   document.getElementById('prod-stock').value    = '';
   document.getElementById('prod-min').value      = '';
+  document.getElementById('prod-batch').value    = '';
+  document.getElementById('prod-expiry').value   = '';
 }
 
 function clearAllData() {
@@ -1076,6 +1266,14 @@ function renderProducts() {
     const margin  = (((p.price - p.cost) / p.price) * 100).toFixed(1);
     const isLow   = p.stock <= p.minStock;
     const isEmpty = p.stock === 0;
+    const daysToExpiry = getDaysToExpiry(p.expiryDate);
+    const expiryMarkup = daysToExpiry === null
+      ? '<span style="color:var(--muted);font-size:11px;">No expiry set</span>'
+      : daysToExpiry < 0
+      ? `<span class="badge danger">Expired ${Math.abs(daysToExpiry)} day${Math.abs(daysToExpiry) === 1 ? '' : 's'} ago</span>`
+      : daysToExpiry <= 30
+      ? `<span class="badge warning">${daysToExpiry === 0 ? 'Expires today' : `${daysToExpiry} day${daysToExpiry === 1 ? '' : 's'} left`}</span>`
+      : `<span class="badge income">${daysToExpiry} days left</span>`;
     const stockBadge = isEmpty
       ? `<span class="badge expense">Out of stock</span>`
       : isLow
@@ -1087,6 +1285,8 @@ function renderProducts() {
         <td>
           <div style="font-weight:600;">${p.name}</div>
           <div style="font-size:11px;color:var(--muted);margin-top:2px;">${p.sku || '—'}</div>
+          <div style="font-size:11px;color:var(--muted);margin-top:4px;">Batch: ${p.batchNumber || '—'}</div>
+          <div style="margin-top:6px;">${expiryMarkup}</div>
         </td>
         <td><span class="badge" style="background:rgba(124,106,247,0.12);color:#7c6af7;">${p.category || 'Uncategorized'}</span></td>
         <td style="color:var(--muted);font-size:13px;">${p.brand || '—'}</td>
@@ -1144,7 +1344,8 @@ function renderTransactions() {
     <tr>
       <td>${t.date}</td>
       <td>
-        <div style="font-weight:600;">${t.product}</div>
+        <div style="font-weight:600;">${getRecordProductName(t)}</div>
+        ${t.sku ? `<div style="font-size:11px;color:var(--muted);margin-top:2px;">${t.sku}</div>` : ''}
         ${t.note ? `<div style="font-size:12px;color:var(--muted);margin-top:2px;">📝 ${t.note}</div>` : ''}
       </td>
       <td>${t.qty}</td>
@@ -1346,7 +1547,11 @@ function restockProduct(id) {
   restockHistory.unshift({
     id: Date.now(),
     date: new Date().toISOString().split('T')[0],
-    product: product.name, qty, cost, total: qty * cost
+    productId: product.id,
+    product: product.name,
+    sku: product.sku || '',
+    category: product.category || 'Uncategorized',
+    qty, cost, total: qty * cost
   });
 
   qtyInput.value  = '';
@@ -1503,15 +1708,17 @@ function syncProfileMenuTheme() {
 }
 
 window.addEventListener('load', () => {
+  loadFeaturePanels();
   initAuth();
   enhanceProfileMenu();
   loadTheme();
   updateThemeButton();
   syncProfileMenuTheme();
   loadCurrency();
+  applyFeaturePanels();
   fetchExchangeRates();
   render();
-  renderDashboard();
+  if (featurePanels.analytics) renderDashboard();
   notifyImportantEvents();
 });
 
@@ -1874,13 +2081,13 @@ function deleteTransaction(id) {
   const tx = transactions.find(t => t.id === id);
   if (!tx) return;
   const snapshot = createDataSnapshot();
-  const product = products.find(p => p.name === tx.product);
+  const product = findProductByRecord(tx);
   if (product) product.stock += tx.qty;
   transactions = transactions.filter(t => t.id !== id);
   saveProducts();
-  addMovementEntry('Sale Deleted', tx.product, `Removed sale of ${tx.qty} units and restored stock.`);
+  addMovementEntry('Sale Deleted', getRecordProductName(tx), `Removed sale of ${tx.qty} units and restored stock.`);
   render();
-  queueUndo(`Sale deleted for ${tx.product}.`, snapshot);
+  queueUndo(`Sale deleted for ${getRecordProductName(tx)}.`, snapshot);
 }
 
 // Feature 11 — Profit Goal Tracker
@@ -1962,8 +2169,476 @@ function showConfirm(message, onYes) {
   };
 }
 
+function renderDashboard() {
+  const today     = new Date().toISOString().split('T')[0];
+  const todayTxns = transactions.filter(t => t.date === today);
+  const soldToday = todayTxns.reduce((s, t) => s + t.qty, 0);
+  const revToday  = todayTxns.reduce((s, t) => s + t.total, 0);
+  const profToday = todayTxns.reduce((s, t) => s + t.profit, 0);
+
+  document.getElementById('kpi-sold').textContent = soldToday;
+  document.getElementById('kpi-revenue').textContent = fmt(revToday);
+  document.getElementById('kpi-profit').textContent = fmt(profToday);
+
+  const groupedTotals = {};
+  transactions.forEach(t => {
+    const key = String(getRecordProductId(t) ?? t.product);
+    if (!groupedTotals[key]) {
+      groupedTotals[key] = { name: getRecordProductName(t), qty: 0, revenue: 0 };
+    }
+    groupedTotals[key].qty += t.qty;
+    groupedTotals[key].revenue += t.total;
+  });
+
+  const top = Object.values(groupedTotals).sort((a, b) => b.qty - a.qty || b.revenue - a.revenue)[0];
+  document.getElementById('kpi-top').textContent = top ? `${top.name} (${top.qty} sold)` : '—';
+
+  const days = [];
+  const dayLabels = [];
+  for (let i = 6; i >= 0; i--) {
+    const d = new Date();
+    d.setDate(d.getDate() - i);
+    days.push(d.toISOString().split('T')[0]);
+    dayLabels.push(d.toLocaleDateString('en-IN', { weekday: 'short', day: 'numeric' }));
+  }
+
+  const revenueByDay = days.map(day => transactions.filter(t => t.date === day).reduce((s, t) => s + t.total, 0));
+  const profitByDay = days.map(day => transactions.filter(t => t.date === day).reduce((s, t) => s + t.profit, 0));
+
+  if (!hasChartSupport()) {
+    if (barChart) {
+      barChart.destroy();
+      barChart = null;
+    }
+    if (doughnutChart) {
+      doughnutChart.destroy();
+      doughnutChart = null;
+    }
+    document.getElementById('donut-legend').innerHTML = '<span style="color:#6b7280;font-size:13px;">Charts unavailable offline</span>';
+    return;
+  }
+
+  if (barChart) barChart.destroy();
+  barChart = new Chart(document.getElementById('barChart'), {
+    type: 'bar',
+    data: {
+      labels: dayLabels,
+      datasets: [
+        { label: 'Revenue', data: revenueByDay, backgroundColor: 'rgba(29,158,117,0.7)', borderRadius: 6, borderSkipped: false },
+        { label: 'Profit', data: profitByDay, backgroundColor: 'rgba(124,106,247,0.7)', borderRadius: 6, borderSkipped: false }
+      ]
+    },
+    options: {
+      responsive: true,
+      maintainAspectRatio: false,
+      plugins: { legend: { display: false } },
+      scales: {
+        x: { ticks: { color: '#6b7280', font: { size: 11 } }, grid: { color: 'rgba(255,255,255,0.05)' } },
+        y: { ticks: { color: '#6b7280', font: { size: 11 }, callback: value => fmt(value) }, grid: { color: 'rgba(255,255,255,0.05)' } }
+      }
+    }
+  });
+
+  const revenueByProduct = {};
+  transactions.forEach(t => {
+    const key = String(getRecordProductId(t) ?? t.product);
+    if (!revenueByProduct[key]) {
+      revenueByProduct[key] = { name: getRecordProductName(t), total: 0 };
+    }
+    revenueByProduct[key].total += t.total;
+  });
+
+  const productEntries = Object.values(revenueByProduct);
+  const prodNames = productEntries.map(entry => entry.name);
+  const prodValues = productEntries.map(entry => entry.total);
+  const colors = ['#1D9E75', '#7c6af7', '#D85A30', '#eab308', '#378ADD', '#e879a0', '#14b8a6', '#f97316'];
+
+  if (doughnutChart) doughnutChart.destroy();
+  if (!prodNames.length) {
+    document.getElementById('donut-legend').innerHTML = '<span style="color:#6b7280;font-size:13px;">No sales yet</span>';
+    return;
+  }
+
+  doughnutChart = new Chart(document.getElementById('doughnutChart'), {
+    type: 'doughnut',
+    data: {
+      labels: prodNames,
+      datasets: [{ data: prodValues, backgroundColor: colors.slice(0, prodNames.length), borderWidth: 0, hoverOffset: 6 }]
+    },
+    options: { responsive: true, maintainAspectRatio: false, cutout: '65%', plugins: { legend: { display: false } } }
+  });
+
+  document.getElementById('donut-legend').innerHTML = prodNames.map((name, index) => `
+    <span style="display:flex;align-items:center;gap:5px;font-size:12px;color:#6b7280;">
+      <span style="width:10px;height:10px;border-radius:2px;background:${colors[index]};flex-shrink:0;"></span>
+      ${name}
+    </span>
+  `).join('');
+}
+
+function renderRestockHistory() {
+  const tbody = document.getElementById('restock-body');
+  if (!restockHistory.length) {
+    tbody.innerHTML = '<tr><td colspan="5" class="empty">No restock history yet.</td></tr>';
+    return;
+  }
+
+  tbody.innerHTML = restockHistory.map(entry => `
+    <tr>
+      <td>${entry.date}</td>
+      <td>
+        <div style="font-weight:600;">${getRecordProductName(entry)}</div>
+        ${entry.sku ? `<div style="font-size:11px;color:var(--muted);margin-top:2px;">${entry.sku}</div>` : ''}
+      </td>
+      <td>${entry.qty} units</td>
+      <td>${fmt(entry.cost)} per unit</td>
+      <td style="color:#eab308;font-weight:700;">${fmt(entry.total)}</td>
+    </tr>
+  `).join('');
+}
+
+function renderDeadStock() {
+  const today = new Date();
+  const tbody = document.getElementById('dead-body');
+  const countEl = document.getElementById('dead-count');
+
+  const deadList = products.filter(product => {
+    if (reviewedProducts.includes(product.id)) return false;
+    const lastSale = transactions
+      .filter(tx => matchesProductRecord(tx, product))
+      .sort((a, b) => new Date(b.date) - new Date(a.date))[0];
+
+    if (!lastSale) return product.stock > 0;
+
+    const daysSince = Math.floor((today - new Date(lastSale.date)) / 86400000);
+    return daysSince >= deadStockDays && product.stock > 0;
+  }).map(product => {
+    const lastSale = transactions
+      .filter(tx => matchesProductRecord(tx, product))
+      .sort((a, b) => new Date(b.date) - new Date(a.date))[0];
+
+    return {
+      ...product,
+      lastSale: lastSale?.date || null,
+      daysSince: lastSale ? Math.floor((today - new Date(lastSale.date)) / 86400000) : null,
+      idleValue: product.stock * product.cost
+    };
+  });
+
+  countEl.textContent = deadList.length;
+  if (!deadList.length) {
+    tbody.innerHTML = '<tr><td colspan="5" class="empty">No dead stock right now.</td></tr>';
+    return;
+  }
+
+  tbody.innerHTML = deadList.map(product => `
+    <tr>
+      <td>
+        <div style="font-weight:600;">${product.name}</div>
+        <div style="font-size:12px;color:var(--muted);">${product.category || 'Uncategorized'}</div>
+      </td>
+      <td><span class="badge danger">${product.daysSince === null ? 'Never sold' : `${product.daysSince} days ago`}</span></td>
+      <td>${product.stock} units</td>
+      <td style="color:#eab308;font-weight:700;">${fmt(product.idleValue)}</td>
+      <td><button class="reviewed-btn" onclick="markReviewed(${product.id})">âœ“ Mark reviewed</button></td>
+    </tr>
+  `).join('');
+}
+
+function renderDateStats() {
+  const filtered = getFilteredTransactions();
+  const rev = filtered.reduce((s, t) => s + t.total, 0);
+  const profit = filtered.reduce((s, t) => s + t.profit, 0);
+  const cost = filtered.reduce((s, t) => s + t.totalCost, 0);
+  const items = filtered.reduce((s, t) => s + t.qty, 0);
+
+  const el = document.getElementById('date-stats');
+  const insightsEl = document.getElementById('date-range-insights');
+  if (!el) return;
+
+  if (!dateFrom && !dateTo) {
+    el.style.display = 'none';
+    if (insightsEl) insightsEl.style.display = 'none';
+    return;
+  }
+
+  el.style.display = 'flex';
+  el.innerHTML = `
+    <div class="date-stat-card">
+      <div class="date-stat-label">Revenue</div>
+      <div class="date-stat-value" style="color:#1D9E75;">${fmt(rev)}</div>
+    </div>
+    <div class="date-stat-card">
+      <div class="date-stat-label">Cost</div>
+      <div class="date-stat-value" style="color:#D85A30;">${fmt(cost)}</div>
+    </div>
+    <div class="date-stat-card">
+      <div class="date-stat-label">Profit</div>
+      <div class="date-stat-value" style="color:#7c6af7;">${fmt(profit)}</div>
+    </div>
+    <div class="date-stat-card">
+      <div class="date-stat-label">Items Sold</div>
+      <div class="date-stat-value">${items}</div>
+    </div>
+  `;
+
+  if (!insightsEl) return;
+
+  if (!filtered.length) {
+    insightsEl.style.display = 'grid';
+    insightsEl.innerHTML = `
+      <div class="range-insight-card empty-state">
+        <div class="range-insight-title">Date Range Insights</div>
+        <div class="range-insight-value">No transactions</div>
+        <div class="range-insight-subtext">Try widening the selected dates to compare category profit and weak products.</div>
+      </div>
+    `;
+    return;
+  }
+
+  const byProduct = {};
+  const byCategory = {};
+
+  filtered.forEach(t => {
+    const productName = getRecordProductName(t);
+    const category = getRecordCategory(t);
+
+    if (!byProduct[productName]) byProduct[productName] = { revenue: 0, cost: 0, profit: 0, items: 0 };
+    if (!byCategory[category]) byCategory[category] = { revenue: 0, profit: 0, items: 0 };
+
+    byProduct[productName].revenue += t.total;
+    byProduct[productName].cost += t.totalCost;
+    byProduct[productName].profit += t.profit;
+    byProduct[productName].items += t.qty;
+
+    byCategory[category].revenue += t.total;
+    byCategory[category].profit += t.profit;
+    byCategory[category].items += t.qty;
+  });
+
+  const bestProduct = Object.entries(byProduct).sort((a, b) => b[1].profit - a[1].profit)[0];
+  const weakestProduct = Object.entries(byProduct).sort((a, b) => a[1].profit - b[1].profit)[0];
+  const topCategory = Object.entries(byCategory).sort((a, b) => b[1].profit - a[1].profit)[0];
+  const avgOrderProfit = filtered.length ? profit / filtered.length : 0;
+  const marginPct = rev > 0 ? ((profit / rev) * 100).toFixed(1) : '0.0';
+
+  insightsEl.style.display = 'grid';
+  insightsEl.innerHTML = `
+    <div class="range-insight-card accent-green">
+      <div class="range-insight-title">Top Category</div>
+      <div class="range-insight-value">${topCategory ? topCategory[0] : '—'}</div>
+      <div class="range-insight-subtext">${topCategory ? `${fmt(topCategory[1].profit)} profit across ${topCategory[1].items} items sold` : 'No category data yet'}</div>
+    </div>
+    <div class="range-insight-card accent-violet">
+      <div class="range-insight-title">Best Product</div>
+      <div class="range-insight-value">${bestProduct ? bestProduct[0] : '—'}</div>
+      <div class="range-insight-subtext">${bestProduct ? `${fmt(bestProduct[1].profit)} profit from ${bestProduct[1].items} units` : 'No product data yet'}</div>
+    </div>
+    <div class="range-insight-card accent-amber">
+      <div class="range-insight-title">Lowest Performer</div>
+      <div class="range-insight-value">${weakestProduct ? weakestProduct[0] : '—'}</div>
+      <div class="range-insight-subtext">${weakestProduct ? `${fmt(weakestProduct[1].profit)} profit on ${fmt(weakestProduct[1].revenue)} revenue` : 'No product data yet'}</div>
+    </div>
+    <div class="range-insight-card accent-slate">
+      <div class="range-insight-title">Range Quality</div>
+      <div class="range-insight-value">${marginPct}% margin</div>
+      <div class="range-insight-subtext">${fmt(avgOrderProfit)} average profit per transaction in this range</div>
+    </div>
+  `;
+}
+
+function renderCategoryReport() {
+  const catMap = {};
+
+  transactions.forEach(t => {
+    const category = getRecordCategory(t);
+    if (!catMap[category]) catMap[category] = { revenue: 0, cost: 0, profit: 0, items: 0, products: new Set() };
+
+    catMap[category].revenue += t.total;
+    catMap[category].cost += t.totalCost;
+    catMap[category].profit += t.profit;
+    catMap[category].items += t.qty;
+    catMap[category].products.add(getRecordProductName(t));
+  });
+
+  const tbody = document.getElementById('cat-report-body');
+  const entries = Object.entries(catMap).sort((a, b) => b[1].profit - a[1].profit);
+
+  if (!entries.length) {
+    tbody.innerHTML = '<tr><td colspan="6" class="empty">No sales data yet.</td></tr>';
+    return;
+  }
+
+  const totalRevenue = entries.reduce((sum, [, data]) => sum + data.revenue, 0);
+  tbody.innerHTML = entries.map(([category, data]) => {
+    const share = totalRevenue > 0 ? ((data.revenue / totalRevenue) * 100).toFixed(1) : 0;
+    return `
+      <tr>
+        <td><span class="badge" style="background:rgba(124,106,247,0.12);color:#7c6af7;">${category}</span></td>
+        <td>${data.products.size} products</td>
+        <td style="color:#1D9E75;font-weight:700;">${fmt(data.revenue)}</td>
+        <td style="color:#D85A30;font-weight:700;">${fmt(data.cost)}</td>
+        <td style="color:#7c6af7;font-weight:700;">${fmt(data.profit)}</td>
+        <td>
+          <div style="display:flex;align-items:center;gap:8px;">
+            <div style="flex:1;background:var(--card-border);border-radius:4px;height:6px;">
+              <div style="width:${share}%;background:#1D9E75;border-radius:4px;height:6px;"></div>
+            </div>
+            <span style="font-size:12px;font-weight:600;color:var(--muted);min-width:36px;">${share}%</span>
+          </div>
+        </td>
+      </tr>
+    `;
+  }).join('');
+}
+
+function renderBreakEven() {
+  const tbody = document.getElementById('breakeven-body');
+  if (!products.length) {
+    tbody.innerHTML = '<tr><td colspan="5" class="empty">No products yet.</td></tr>';
+    return;
+  }
+
+  const today = new Date().toISOString().split('T')[0];
+  const todayRestock = restockHistory.filter(entry => entry.date === today);
+  const totalRestockToday = todayRestock.reduce((sum, entry) => sum + entry.total, 0);
+
+  tbody.innerHTML = products.map(product => {
+    const profitPerUnit = product.price - product.cost;
+    const restockForThis = todayRestock
+      .filter(entry => matchesProductRecord(entry, product))
+      .reduce((sum, entry) => sum + entry.total, 0);
+    const unitsNeeded = profitPerUnit > 0 ? Math.ceil(restockForThis / profitPerUnit) : '—';
+    const soldToday = transactions
+      .filter(tx => tx.date === today && matchesProductRecord(tx, product))
+      .reduce((sum, tx) => sum + tx.qty, 0);
+
+    const status = unitsNeeded === '—'
+      ? '<span class="badge expense">No margin</span>'
+      : soldToday >= unitsNeeded
+      ? '<span class="badge income">âœ“ Break-even reached</span>'
+      : `<span class="badge warning">${unitsNeeded - soldToday} more to go</span>`;
+
+    return `
+      <tr>
+        <td style="font-weight:600;">${product.name}</td>
+        <td>${fmt(product.price - product.cost)} per unit</td>
+        <td>${fmt(restockForThis)}</td>
+        <td style="font-weight:700;">${unitsNeeded === '—' ? '—' : `${unitsNeeded} units`}</td>
+        <td>${status}</td>
+      </tr>
+    `;
+  }).join('');
+
+  const totalProfitToday = transactions
+    .filter(tx => tx.date === today)
+    .reduce((sum, tx) => sum + tx.profit, 0);
+
+  const overallEl = document.getElementById('breakeven-overall');
+  if (!overallEl) return;
+
+  if (totalRestockToday === 0) {
+    overallEl.textContent = 'No restock costs today.';
+    overallEl.style.color = 'var(--muted)';
+  } else if (totalProfitToday >= totalRestockToday) {
+    overallEl.textContent = `âœ“ Break-even reached â€” ${fmt(totalProfitToday - totalRestockToday)} surplus today`;
+    overallEl.style.color = '#1D9E75';
+  } else {
+    overallEl.textContent = `Need ${fmt(totalRestockToday - totalProfitToday)} more profit to break even today`;
+    overallEl.style.color = '#D85A30';
+  }
+}
+
+function exportPDF() {
+  closeProfileMenu();
+  if (!hasPdfSupport()) {
+    toast('PDF export is unavailable right now. Try again when the PDF library has loaded.', 'error');
+    return;
+  }
+
+  const { jsPDF } = window.jspdf;
+  const doc = new jsPDF();
+  const today = new Date().toISOString().split('T')[0];
+  const green = [29, 158, 117];
+  const dark = [30, 30, 40];
+
+  doc.setFillColor(...dark);
+  doc.rect(0, 0, 210, 30, 'F');
+  doc.setTextColor(255, 255, 255);
+  doc.setFontSize(18);
+  doc.setFont('helvetica', 'bold');
+  doc.text('Shop Tracker â€” Daily Report', 14, 18);
+  doc.setFontSize(10);
+  doc.setFont('helvetica', 'normal');
+  doc.setTextColor(180, 180, 180);
+  doc.text(`Generated: ${today}`, 14, 26);
+
+  const totalRev = transactions.reduce((sum, tx) => sum + tx.total, 0);
+  const totalProfit = transactions.reduce((sum, tx) => sum + tx.profit, 0);
+  const totalCost = transactions.reduce((sum, tx) => sum + tx.totalCost, 0);
+
+  doc.setFontSize(11);
+  doc.setFont('helvetica', 'bold');
+  doc.setTextColor(...dark);
+  doc.text('Summary', 14, 42);
+  doc.autoTable({
+    startY: 46,
+    head: [['Total Revenue', 'Total Cost', 'Gross Profit', 'Items Sold']],
+    body: [[fmt(totalRev), fmt(totalCost), fmt(totalProfit), transactions.reduce((sum, tx) => sum + tx.qty, 0)]],
+    headStyles: { fillColor: green, textColor: 255, fontStyle: 'bold' },
+    bodyStyles: { textColor: dark },
+    margin: { left: 14, right: 14 }
+  });
+
+  doc.setFontSize(11);
+  doc.setFont('helvetica', 'bold');
+  doc.setTextColor(...dark);
+  doc.text('Sales Transactions', 14, doc.lastAutoTable.finalY + 14);
+  doc.autoTable({
+    startY: doc.lastAutoTable.finalY + 18,
+    head: [['Date', 'Product', 'Qty', 'Unit Price', 'Total', 'Profit']],
+    body: transactions.map(tx => [tx.date, getRecordProductName(tx), tx.qty, fmt(tx.price), fmt(tx.total), fmt(tx.profit)]),
+    headStyles: { fillColor: green, textColor: 255, fontStyle: 'bold' },
+    bodyStyles: { textColor: dark },
+    alternateRowStyles: { fillColor: [245, 245, 245] },
+    margin: { left: 14, right: 14 }
+  });
+
+  const todayDate = new Date();
+  const deadList = products.filter(product => {
+    const lastSale = transactions
+      .filter(tx => matchesProductRecord(tx, product))
+      .sort((a, b) => new Date(b.date) - new Date(a.date))[0];
+
+    if (!lastSale) return product.stock > 0;
+    return Math.floor((todayDate - new Date(lastSale.date)) / 86400000) >= deadStockDays && product.stock > 0;
+  });
+
+  if (deadList.length) {
+    doc.setFontSize(11);
+    doc.setFont('helvetica', 'bold');
+    doc.setTextColor(...dark);
+    doc.text('Dead Stock', 14, doc.lastAutoTable.finalY + 14);
+    doc.autoTable({
+      startY: doc.lastAutoTable.finalY + 18,
+      head: [['Product', 'Stock', 'Idle Value']],
+      body: deadList.map(product => [product.name, `${product.stock} units`, fmt(product.stock * product.cost)]),
+      headStyles: { fillColor: [216, 90, 48], textColor: 255, fontStyle: 'bold' },
+      bodyStyles: { textColor: dark },
+      margin: { left: 14, right: 14 }
+    });
+  }
+
+  doc.setFontSize(9);
+  doc.setTextColor(150, 150, 150);
+  doc.text('Generated by Shop Tracker', 14, 290);
+  doc.save(`shop-report-${today}.pdf`);
+}
+
 if ('serviceWorker' in navigator) {
   navigator.serviceWorker.register('./sw.js')
     .then(() => console.log('Service worker registered'))
     .catch(err => console.log('SW error:', err));
 }
+
+

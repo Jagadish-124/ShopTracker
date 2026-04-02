@@ -127,6 +127,16 @@
     </div>
   </div>
 
+  <div id="expiry-banner" style="display:none;">
+    <div class="restock-alert expiry-alert">
+      <span class="restock-icon">â°</span>
+      <div>
+        <div class="restock-title expiry-title">Near Expiry</div>
+        <div id="expiry-list" class="restock-items"></div>
+      </div>
+    </div>
+  </div>
+
   <!-- Profit Goal Tracker -->
 <div class="goal-tracker">
   <div class="goal-header">
@@ -214,7 +224,28 @@
     </div>
   </div>
 
+  <div class="workspace-switcher">
+    <div class="workspace-switcher-copy">
+      <div class="workspace-switcher-title">Quick Views</div>
+      <div class="workspace-switcher-subtitle">Open deeper dashboards only when you need them.</div>
+    </div>
+    <div class="workspace-switcher-actions">
+      <button type="button" id="toggle-analytics" class="workspace-toggle-btn" onclick="toggleFeaturePanel('analytics')">Analytics Dashboard</button>
+      <button type="button" id="toggle-stock" class="workspace-toggle-btn" onclick="toggleFeaturePanel('stock')">Stock Watch</button>
+      <button type="button" id="toggle-timeline" class="workspace-toggle-btn" onclick="toggleFeaturePanel('timeline')">Inventory Timeline</button>
+      <button type="button" id="toggle-reports" class="workspace-toggle-btn" onclick="toggleFeaturePanel('reports')">Reports Lab</button>
+    </div>
+  </div>
+
   <!-- Dashboard Insights -->
+  <section id="feature-analytics" class="feature-panel feature-panel-hidden">
+    <div class="feature-panel-header">
+      <div>
+        <div class="feature-panel-kicker">Optional View</div>
+        <div class="feature-panel-title">Analytics Dashboard</div>
+      </div>
+      <button type="button" class="feature-panel-close" onclick="toggleFeaturePanel('analytics')">Hide</button>
+    </div>
   <div class="dashboard-grid">
     <div class="kpi-grid">
       <div class="kpi-card">
@@ -264,6 +295,7 @@
       <div id="donut-legend" style="margin-top:12px;display:flex;flex-wrap:wrap;gap:8px;"></div>
     </div>
   </div>
+  </section>
 
   <!-- Products Section -->
   <div class="section-title">Products</div>
@@ -304,6 +336,14 @@
       <div class="form-group">
         <label>Min Stock Alert</label>
         <input type="number" id="prod-min" placeholder="e.g. 5" />
+      </div>
+      <div class="form-group">
+        <label>Batch Number</label>
+        <input type="text" id="prod-batch" placeholder="e.g. LOT-042" />
+      </div>
+      <div class="form-group">
+        <label>Expiry Date</label>
+        <input type="date" id="prod-expiry" />
       </div>
     </div>
     <button onclick="addProduct()" style="margin-top:14px;">+ Add Product</button>
@@ -350,6 +390,14 @@
     </table>
   </div>
 
+  <section id="feature-stock" class="feature-panel feature-panel-hidden">
+    <div class="feature-panel-header">
+      <div>
+        <div class="feature-panel-kicker">Optional View</div>
+        <div class="feature-panel-title">Stock Watch</div>
+      </div>
+      <button type="button" class="feature-panel-close" onclick="toggleFeaturePanel('stock')">Hide</button>
+    </div>
   <!-- Dead Stock Section -->
   <div class="section-title" style="margin-top:32px;">
     Dead Stock
@@ -392,7 +440,16 @@
       <tbody id="restock-body"></tbody>
     </table>
   </div>
+  </section>
 
+  <section id="feature-timeline" class="feature-panel feature-panel-hidden">
+    <div class="feature-panel-header">
+      <div>
+        <div class="feature-panel-kicker">Optional View</div>
+        <div class="feature-panel-title">Inventory Timeline</div>
+      </div>
+      <button type="button" class="feature-panel-close" onclick="toggleFeaturePanel('timeline')">Hide</button>
+    </div>
   <div class="section-title" style="margin-top:32px;">Inventory Timeline</div>
   <div class="table-wrap" style="margin-bottom:32px;">
     <table>
@@ -408,6 +465,16 @@
     </table>
   </div>
 
+  </section>
+
+  <section id="feature-reports" class="feature-panel feature-panel-hidden">
+    <div class="feature-panel-header">
+      <div>
+        <div class="feature-panel-kicker">Optional View</div>
+        <div class="feature-panel-title">Reports Lab</div>
+      </div>
+      <button type="button" class="feature-panel-close" onclick="toggleFeaturePanel('reports')">Hide</button>
+    </div>
   <!-- Break-even Calculator -->
 <div class="section-title" style="margin-top:32px;">
   Break-even Calculator
@@ -506,6 +573,8 @@
 <!-- Date Stats -->
 <div id="date-stats" style="display:none;gap:12px;margin-bottom:16px;flex-wrap:wrap;"></div>
 <div id="date-range-insights" class="range-insights-grid" style="display:none;"></div>
+
+  </section>
 
   <!-- Sales Transactions -->
   <div class="section-title">Sales Transactions</div>
