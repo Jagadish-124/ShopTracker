@@ -24,6 +24,7 @@ let dailyGoal = 0;
 let pendingUndoTimer = null;
 let notificationSettings = { enabled: false, lowStock: true, goal: true };
 const FEATURE_PANEL_KEY = 'featurePanels';
+const VIEW_MODE_KEY = 'activeViewMode';
 const featurePanelDefaults = {
   analytics: false,
   stock: false,
@@ -31,6 +32,13 @@ const featurePanelDefaults = {
   reports: false
 };
 let featurePanels = { ...featurePanelDefaults };
+let activeViewMode = 'home';
+const featurePanelViews = {
+  analytics: 'insights',
+  stock: 'inventory',
+  timeline: 'insights',
+  reports: 'reports'
+};
 
 function bufferToHex(buffer) {
   return Array.from(new Uint8Array(buffer))
@@ -167,7 +175,51 @@ function saveFeaturePanels() {
   localStorage.setItem(FEATURE_PANEL_KEY, JSON.stringify(featurePanels));
 }
 
+function loadViewMode() {
+  const saved = localStorage.getItem(VIEW_MODE_KEY);
+  activeViewMode = saved || 'home';
+}
+
+function saveViewMode() {
+  localStorage.setItem(VIEW_MODE_KEY, activeViewMode);
+}
+
+function applyViewMode() {
+  document.querySelectorAll('[data-view]').forEach(section => {
+    section.classList.toggle('view-hidden', section.dataset.view !== activeViewMode);
+  });
+
+  document.querySelectorAll('.workspace-nav-btn').forEach(button => {
+    const active = button.dataset.viewTarget === activeViewMode;
+    button.classList.toggle('active', active);
+    button.setAttribute('aria-pressed', String(active));
+  });
+}
+
+function switchViewMode(mode) {
+  activeViewMode = mode;
+  saveViewMode();
+  applyViewMode();
+
+  if (mode === 'insights' && !featurePanels.analytics) {
+    featurePanels.analytics = true;
+    saveFeaturePanels();
+    applyFeaturePanels();
+  }
+
+  if (mode === 'reports' && !featurePanels.reports) {
+    featurePanels.reports = true;
+    saveFeaturePanels();
+    applyFeaturePanels();
+  }
+
+  render();
+}
+
 function applyFeaturePanels() {
+  const activePanels = Object.entries(featurePanels).filter(([, open]) => open);
+  const backdrop = document.getElementById('feature-panel-backdrop');
+
   Object.entries(featurePanels).forEach(([panel, open]) => {
     const section = document.getElementById(`feature-${panel}`);
     const button = document.getElementById(`toggle-${panel}`);
@@ -177,11 +229,50 @@ function applyFeaturePanels() {
       button.setAttribute('aria-pressed', String(open));
     }
   });
+
+  document.body.classList.toggle('feature-panel-open', activePanels.length > 0);
+  if (backdrop) backdrop.classList.toggle('open', activePanels.length > 0);
+}
+
+function closeActiveFeaturePanel() {
+  let changed = false;
+  Object.keys(featurePanels).forEach(panel => {
+    if (featurePanels[panel]) {
+      featurePanels[panel] = false;
+      changed = true;
+    }
+  });
+
+  if (!changed) return;
+
+  if (barChart) {
+    barChart.destroy();
+    barChart = null;
+  }
+  if (doughnutChart) {
+    doughnutChart.destroy();
+    doughnutChart = null;
+  }
+
+  saveFeaturePanels();
+  applyFeaturePanels();
 }
 
 function toggleFeaturePanel(panel) {
   if (!(panel in featurePanels)) return;
-  featurePanels[panel] = !featurePanels[panel];
+
+  const nextOpen = !featurePanels[panel];
+  Object.keys(featurePanels).forEach(key => {
+    featurePanels[key] = false;
+  });
+  featurePanels[panel] = nextOpen;
+
+  if (nextOpen) {
+    activeViewMode = featurePanelViews[panel] || activeViewMode;
+    saveViewMode();
+    applyViewMode();
+  }
+
   saveFeaturePanels();
   applyFeaturePanels();
 
@@ -1709,6 +1800,7 @@ function syncProfileMenuTheme() {
 
 window.addEventListener('load', () => {
   loadFeaturePanels();
+  loadViewMode();
   initAuth();
   enhanceProfileMenu();
   loadTheme();
@@ -1716,6 +1808,7 @@ window.addEventListener('load', () => {
   syncProfileMenuTheme();
   loadCurrency();
   applyFeaturePanels();
+  applyViewMode();
   fetchExchangeRates();
   render();
   if (featurePanels.analytics) renderDashboard();
@@ -1723,6 +1816,7 @@ window.addEventListener('load', () => {
 });
 
 document.addEventListener('keydown', event => {
+  if (event.key === 'Escape') closeActiveFeaturePanel();
   if (event.key === 'Escape') closeProfileMenu();
   if (event.key !== 'Enter') return;
   if (document.getElementById('auth-overlay')?.style.display === 'none') return;
