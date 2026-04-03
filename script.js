@@ -217,9 +217,6 @@ function switchViewMode(mode) {
 }
 
 function applyFeaturePanels() {
-  const activePanels = Object.entries(featurePanels).filter(([, open]) => open);
-  const backdrop = document.getElementById('feature-panel-backdrop');
-
   Object.entries(featurePanels).forEach(([panel, open]) => {
     const section = document.getElementById(`feature-${panel}`);
     const button = document.getElementById(`toggle-${panel}`);
@@ -229,9 +226,6 @@ function applyFeaturePanels() {
       button.setAttribute('aria-pressed', String(open));
     }
   });
-
-  document.body.classList.toggle('feature-panel-open', activePanels.length > 0);
-  if (backdrop) backdrop.classList.toggle('open', activePanels.length > 0);
 }
 
 function closeActiveFeaturePanel() {
@@ -244,15 +238,6 @@ function closeActiveFeaturePanel() {
   });
 
   if (!changed) return;
-
-  if (barChart) {
-    barChart.destroy();
-    barChart = null;
-  }
-  if (doughnutChart) {
-    doughnutChart.destroy();
-    doughnutChart = null;
-  }
 
   saveFeaturePanels();
   applyFeaturePanels();
@@ -275,17 +260,6 @@ function toggleFeaturePanel(panel) {
 
   saveFeaturePanels();
   applyFeaturePanels();
-
-  if (panel === 'analytics' && !featurePanels[panel]) {
-    if (barChart) {
-      barChart.destroy();
-      barChart = null;
-    }
-    if (doughnutChart) {
-      doughnutChart.destroy();
-      doughnutChart = null;
-    }
-  }
 
   if (featurePanels[panel]) {
     if (panel === 'analytics') renderDashboard();
@@ -1816,7 +1790,6 @@ window.addEventListener('load', () => {
 });
 
 document.addEventListener('keydown', event => {
-  if (event.key === 'Escape') closeActiveFeaturePanel();
   if (event.key === 'Escape') closeProfileMenu();
   if (event.key !== 'Enter') return;
   if (document.getElementById('auth-overlay')?.style.display === 'none') return;

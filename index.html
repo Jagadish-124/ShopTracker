@@ -137,23 +137,17 @@
     </div>
   </div>
 
-  <div class="workspace-toolbar">
-    <div class="workspace-nav">
+  <div class="workspace-switcher workspace-switcher-inline workspace-switcher-unified">
+    <div class="workspace-switcher-copy">
+      <div class="workspace-switcher-title">Quick Views</div>
+    </div>
+    <div class="workspace-switcher-actions">
       <button type="button" class="workspace-nav-btn active" data-view-target="home" onclick="switchViewMode('home')">Home</button>
       <button type="button" class="workspace-nav-btn" data-view-target="inventory" onclick="switchViewMode('inventory')">Inventory</button>
       <button type="button" class="workspace-nav-btn" data-view-target="insights" onclick="switchViewMode('insights')">Insights</button>
       <button type="button" class="workspace-nav-btn" data-view-target="reports" onclick="switchViewMode('reports')">Reports</button>
-    </div>
-    <div class="workspace-switcher workspace-switcher-inline">
-      <div class="workspace-switcher-copy">
-        <div class="workspace-switcher-title">Quick Views</div>
-      </div>
-      <div class="workspace-switcher-actions">
-        <button type="button" id="toggle-analytics" class="workspace-toggle-btn" onclick="toggleFeaturePanel('analytics')">Analytics Dashboard</button>
-        <button type="button" id="toggle-stock" class="workspace-toggle-btn" onclick="toggleFeaturePanel('stock')">Stock Watch</button>
-        <button type="button" id="toggle-timeline" class="workspace-toggle-btn" onclick="toggleFeaturePanel('timeline')">Inventory Timeline</button>
-        <button type="button" id="toggle-reports" class="workspace-toggle-btn" onclick="toggleFeaturePanel('reports')">Reports Lab</button>
-      </div>
+      <button type="button" id="toggle-stock" class="workspace-nav-btn" onclick="toggleFeaturePanel('stock')">Stock Watch</button>
+      <button type="button" id="toggle-timeline" class="workspace-nav-btn" onclick="toggleFeaturePanel('timeline')">Inventory Timeline</button>
     </div>
   </div>
   <div id="feature-panel-backdrop" class="feature-panel-backdrop" onclick="closeActiveFeaturePanel()"></div>
@@ -306,8 +300,8 @@
   </section>
 
   <!-- Products Section -->
-  <div class="section-title view-section" data-view="inventory">Products</div>
-  <div class="form-section view-section" data-view="inventory">
+  <div class="section-title">Products</div>
+  <div class="form-section core-workspace">
     <div class="form-grid" style="grid-template-columns: repeat(3, 1fr);">
       <div class="form-group">
         <label>Product Name</label>
@@ -358,7 +352,7 @@
   </div>
 
   <!-- Search Bar -->
-  <div class="search-bar view-section" data-view="inventory">
+  <div class="search-bar core-workspace">
     <div class="search-group">
       <span class="search-icon">🔍</span>
       <input type="text" id="search-input" placeholder="Search products..." oninput="setSearch(this.value)" />
@@ -376,7 +370,7 @@
   </div>
 
   <!-- Products Table -->
-  <div class="table-wrap view-section" data-view="inventory" style="margin-bottom:32px;">
+  <div class="table-wrap core-workspace" style="margin-bottom:32px;">
     <table>
       <thead>
         <tr>
@@ -585,8 +579,8 @@
   </section>
 
   <!-- Sales Transactions -->
-  <div class="section-title view-section" data-view="inventory">Sales Transactions</div>
-  <div class="table-wrap view-section" data-view="inventory" style="margin-bottom:32px;">
+  <div class="section-title">Sales Transactions</div>
+  <div class="table-wrap core-workspace" style="margin-bottom:32px;">
     <table>
       <thead>
         <tr>
