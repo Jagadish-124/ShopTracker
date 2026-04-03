@@ -10,6 +10,8 @@
   <meta name="apple-mobile-web-app-title" content="Shop Tracker" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
   <title>Shop Tracker</title>
+  <link rel="icon" href="favicon.ico" type="image/x-icon" />
+  <link rel="apple-touch-icon" href="icon-192.png" />
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
   <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&family=Space+Grotesk:wght@500;700&display=swap" rel="stylesheet" />
@@ -19,6 +21,9 @@
   <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf-autotable/3.6.0/jspdf.plugin.autotable.min.js"></script>
 </head>
 <body>
+  <!-- ====================================================
+       AUTH OVERLAY
+       ==================================================== -->
   <div id="auth-overlay" class="auth-overlay">
     <div class="auth-card">
       <div class="auth-badge">Protected Access</div>
@@ -45,559 +50,589 @@
         <button id="auth-switch-btn" type="button" class="auth-secondary-btn" onclick="switchAuthMode()" style="display:none;">
           Need to create an account?
         </button>
-        <div id="auth-profile-menu" class="profile-menu" style="display:none;">
-          <button id="auth-profile-chip" class="user-badge profile-chip" type="button" aria-haspopup="menu" aria-expanded="false">
-            <span id="auth-current-user-badge" class="profile-chip-label"></span>
-            <span class="profile-chip-caret">▾</span>
-          </button>
-          <div id="profile-dropdown" class="profile-dropdown" role="menu">
-            <button type="button" class="profile-dropdown-item" onclick="toggleTheme()">
-              <span class="profile-dropdown-icon" id="theme-menu-icon">✺</span>
-              <span id="theme-menu-label">Switch to light mode</span>
-            </button>
-            <button type="button" class="profile-dropdown-item danger" onclick="logout()">
-              <span class="profile-dropdown-icon">⎋</span>
-              <span>Sign out</span>
-            </button>
-          </div>
-        </div>
       </div>
       <div id="auth-message" class="auth-message"></div>
     </div>
   </div>
 
+  <!-- ====================================================
+       APP SHELL
+       ==================================================== -->
   <div id="app-shell" class="app-shell app-shell-hidden">
 
-  <!-- Header -->
-  <div class="page-header" style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:10px;margin-bottom:12px;">
-    <div class="page-brand" style="display:flex;flex-direction:column;align-items:flex-start;gap:4px;">
-      <h1 style="margin:0;font-size:22px;font-weight:700;color:var(--text);border-bottom:3px solid #1D9E75;padding-bottom:4px;">Shop Tracker</h1>
-      <span style="font-size:12px;color:#1D9E75;font-weight:700;letter-spacing:0.02em;">live stock manager</span>
-    </div>
-    <div class="page-actions" style="display:flex;flex-direction:column;gap:4px;align-items:flex-end;">
-      <div class="page-actions-row" style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;justify-content:flex-end;">
-        <select onchange="setCurrency(this.value)" id="currency-select"
-          style="height:36px;padding:0 10px;border:1px solid var(--card-border);border-radius:8px;background:var(--input-bg);color:var(--text);font-size:13px;cursor:pointer;outline:none;">
-          <option value="INR">₹ INR</option>
-          <option value="USD">$ USD</option>
-          <option value="EUR">€ EUR</option>
-          <option value="GBP">£ GBP</option>
-          <option value="JPY">¥ JPY</option>
-        </select>
-        <button onclick="backupData()" class="export-btn" style="border-color:rgba(234,179,8,0.4);color:#eab308;">💾 Backup</button>
-        <label class="export-btn" style="border-color:rgba(234,179,8,0.4);color:#eab308;cursor:pointer;">
-          📂 Restore
-          <input type="file" accept=".json" onchange="restoreData(event)" style="display:none;" />
-        </label>
-        <button onclick="toggleTheme()" id="theme-btn" class="export-btn" style="font-size:16px;">🌙</button>
-        <button onclick="logout()" id="logout-btn" class="export-btn" style="border-color:rgba(216,90,48,0.4);color:#D85A30;display:none;">Sign Out</button>
-        <button onclick="exportCSV()" class="export-btn csv-btn">⬇ Export CSV</button>
-        <button onclick="exportPDF()" class="export-btn pdf-btn">⬇ Export PDF</button>
-        <button onclick="clearAllData()" class="clear-btn">🗑 Clear All Data</button>
-        <span id="current-user-badge" class="user-badge" style="display:none;"></span>
+    <!-- ── Header ───────────────────────────────────────── -->
+    <div class="page-header">
+      <div class="page-brand">
+        <h1>Shop <span>Tracker</span></h1>
+        <span style="font-size:12px;color:#1D9E75;font-weight:700;letter-spacing:0.02em;">live stock manager</span>
       </div>
+      <div class="page-actions">
+        <div class="page-actions-row">
+          <select onchange="setCurrency(this.value)" id="currency-select" aria-label="Select currency">
+            <option value="INR">₹ INR</option>
+            <option value="USD">$ USD</option>
+            <option value="EUR">€ EUR</option>
+            <option value="GBP">£ GBP</option>
+            <option value="JPY">¥ JPY</option>
+          </select>
+          <button onclick="backupData()" class="export-btn" style="border-color:rgba(234,179,8,0.4);color:#eab308;" aria-label="Backup data">💾 Backup</button>
+          <label class="export-btn" style="border-color:rgba(234,179,8,0.4);color:#eab308;cursor:pointer;" aria-label="Restore data">
+            📂 Restore
+            <input type="file" accept=".json" onchange="restoreData(event)" style="display:none;" />
+          </label>
+          <button onclick="exportCSV()" class="export-btn csv-btn" aria-label="Export CSV">⬇ Export CSV</button>
+          <button onclick="exportPDF()" class="export-btn pdf-btn" aria-label="Export PDF">⬇ Export PDF</button>
+          <button onclick="clearAllData()" class="clear-btn" aria-label="Clear all data">🗑 Clear All</button>
+          <!-- Legacy hidden elements kept for JS compatibility -->
+          <button onclick="toggleTheme()" id="theme-btn" class="export-btn" style="display:none;" aria-label="Toggle theme">🌙</button>
+          <button onclick="logout()" id="logout-btn" class="export-btn" style="display:none;" aria-label="Sign out">Sign Out</button>
+          <span id="current-user-badge" class="user-badge" style="display:none;"></span>
+        </div>
         <div id="header-profile-menu" class="profile-menu" style="display:none;">
-          <button id="header-profile-chip" class="user-badge profile-chip" type="button" aria-haspopup="menu" aria-expanded="false" onclick="toggleProfileMenu()">
+          <button
+            id="header-profile-chip"
+            class="user-badge profile-chip"
+            type="button"
+            aria-haspopup="menu"
+            aria-expanded="false"
+            onclick="toggleProfileMenu()"
+            aria-label="User profile menu"
+          >
             <span id="header-current-user-badge" class="profile-chip-label"></span>
-            <span class="profile-chip-caret">▾</span>
+            <span class="profile-chip-caret" aria-hidden="true">▾</span>
           </button>
           <div id="header-profile-dropdown" class="profile-dropdown" role="menu">
             <button type="button" class="profile-dropdown-item" onclick="toggleTheme()">
               <span class="profile-dropdown-icon" id="header-theme-menu-icon">✺</span>
               <span id="header-theme-menu-label">Switch to light mode</span>
             </button>
+            <div class="profile-dropdown-divider"></div>
             <button type="button" class="profile-dropdown-item danger" onclick="logout()">
               <span class="profile-dropdown-icon">⎋</span>
               <span>Sign out</span>
             </button>
           </div>
         </div>
-      <small id="rates-badge" style="font-size:10px;color:#1D9E75;font-weight:600;letter-spacing:0.05em;">Rates cached</small>
+        <small id="rates-badge">Rates cached</small>
+      </div>
     </div>
-  </div>
 
-  <!-- Restock Alert Banner -->
-  <div id="restock-banner" style="display:none;">
-    <div class="restock-alert">
-      <span class="restock-icon">⚠️</span>
-      <div>
-        <div class="restock-title">Restock Needed</div>
-        <div id="restock-list" class="restock-items"></div>
-      </div>
-    </div>
-  </div>
-
-  <div id="expiry-banner" style="display:none;">
-    <div class="restock-alert expiry-alert">
-      <span class="restock-icon">â°</span>
-      <div>
-        <div class="restock-title expiry-title">Near Expiry</div>
-        <div id="expiry-list" class="restock-items"></div>
-      </div>
-    </div>
-  </div>
-
-  <div class="workspace-switcher workspace-switcher-inline workspace-switcher-unified">
-    <div class="workspace-switcher-copy">
-      <div class="workspace-switcher-title">Quick Views</div>
-    </div>
-    <div class="workspace-switcher-actions">
-      <button type="button" class="workspace-nav-btn active" data-view-target="home" onclick="switchViewMode('home')">Home</button>
-      <button type="button" class="workspace-nav-btn" data-view-target="inventory" onclick="switchViewMode('inventory')">Inventory</button>
-      <button type="button" class="workspace-nav-btn" data-view-target="insights" onclick="switchViewMode('insights')">Insights</button>
-      <button type="button" class="workspace-nav-btn" data-view-target="reports" onclick="switchViewMode('reports')">Reports</button>
-      <button type="button" id="toggle-stock" class="workspace-nav-btn" onclick="toggleFeaturePanel('stock')">Stock Watch</button>
-      <button type="button" id="toggle-timeline" class="workspace-nav-btn" onclick="toggleFeaturePanel('timeline')">Inventory Timeline</button>
-    </div>
-  </div>
-  <div id="feature-panel-backdrop" class="feature-panel-backdrop" onclick="closeActiveFeaturePanel()"></div>
-
-  <!-- Profit Goal Tracker -->
-<div class="goal-tracker view-section" data-view="home">
-  <div class="goal-header">
-    <span class="goal-title">📊 Daily Profit Goal</span>
-    <div style="display:flex;gap:8px;align-items:center;">
-      <input type="number" id="goal-input" placeholder="Set goal..."
-        style="height:32px;width:130px;padding:0 10px;border:1px solid var(--card-border);border-radius:8px;background:var(--input-bg);color:var(--text);font-size:13px;outline:none;" />
-      <button onclick="setGoal()" class="sell-btn" style="height:32px;">Set</button>
-    </div>
-  </div>
-  <div class="goal-bar-track">
-    <div id="goal-bar" class="goal-bar-fill"></div>
-  </div>
-  <div id="goal-label" style="font-size:13px;color:var(--muted);margin-top:8px;">
-    Set a daily profit goal above
-  </div>
-</div>
-
-  <!-- Insight Cards -->
-  <div class="summary view-section" data-view="home">
-    <div class="card income-card">
-      <p>Total Revenue</p>
-      <h2 id="total-income">₹0</h2>
-      <div id="revenue-trend" style="font-size:12px;margin-top:6px;font-weight:600;"></div>
-    </div>
-    <div class="card expense-card">
-      <p>Total Cost</p>
-      <h2 id="total-expense">₹0</h2>
-    </div>
-    <div class="card profit-card">
-      <p>Gross Profit</p>
-      <h2 id="net-profit">₹0</h2>
-    </div>
-    <div class="card" style="border-color:rgba(124,106,247,0.3);">
-      <p>Sales Profit</p>
-      <h2 id="total-profit" style="color:#7c6af7;">₹0</h2>
-    </div>
-  </div>
-
-  <!-- Smart Insights Banner -->
-  <div class="insights-grid view-section" data-view="home">
-    <div class="insight-card">
-      <div class="insight-header">
-        <span class="insight-icon" style="background:rgba(29,158,117,0.12);">📊</span>
-        <span class="insight-title">Today's Summary</span>
-      </div>
-      <div class="insight-stats">
-        <div class="insight-stat">
-          <div class="insight-stat-label">Revenue</div>
-          <div class="insight-stat-value" id="summary-rev">₹0</div>
-        </div>
-        <div class="insight-stat">
-          <div class="insight-stat-label">Profit</div>
-          <div class="insight-stat-value" id="summary-profit">₹0</div>
-        </div>
-        <div class="insight-stat">
-          <div class="insight-stat-label">Items Sold</div>
-          <div class="insight-stat-value" id="summary-items">0</div>
-        </div>
-      </div>
-    </div>
-    <div class="insight-card">
-      <div class="insight-header">
-        <span class="insight-icon" style="background:rgba(234,179,8,0.12);">🏆</span>
-        <span class="insight-title">Best Selling Day</span>
-      </div>
-      <div id="best-day" style="font-size:15px;font-weight:700;color:var(--text);margin-top:12px;">
-        Not enough data yet
-      </div>
-      <div style="font-size:12px;color:var(--muted);margin-top:6px;">
-        Based on all time transactions
-      </div>
-    </div>
-    <div class="insight-card">
-      <div class="insight-header">
-        <span class="insight-icon" style="background:rgba(216,90,48,0.12);">⚠️</span>
-        <span class="insight-title">Low Margin Products</span>
-      </div>
-      <div id="margin-warnings" style="margin-top:12px;display:flex;flex-wrap:wrap;gap:8px;">
-        <span style="color:#1D9E75;font-size:13px;">All products have healthy margins.</span>
-      </div>
-      <div style="font-size:12px;color:var(--muted);margin-top:8px;">
-        Products with margin below 10%
-      </div>
-    </div>
-  </div>
-
-  <!-- Dashboard Insights -->
-  <section id="feature-analytics" class="feature-panel feature-panel-hidden view-section" data-view="insights">
-    <div class="feature-panel-header">
-      <div>
-        <div class="feature-panel-kicker">Optional View</div>
-        <div class="feature-panel-title">Analytics Dashboard</div>
-      </div>
-      <button type="button" class="feature-panel-close" onclick="toggleFeaturePanel('analytics')">Hide</button>
-    </div>
-  <div class="dashboard-grid">
-    <div class="kpi-grid">
-      <div class="kpi-card">
-        <div class="kpi-icon" style="background:rgba(29,158,117,0.12);">📦</div>
+    <!-- ── Alert Banners ─────────────────────────────────── -->
+    <div id="restock-banner" style="display:none;">
+      <div class="restock-alert">
+        <span class="restock-icon" aria-label="Alert">⚠️</span>
         <div>
-          <div class="kpi-label">Items Sold Today</div>
-          <div class="kpi-value" id="kpi-sold">0</div>
+          <div class="restock-title">Restock Needed</div>
+          <div id="restock-list" class="restock-items"></div>
         </div>
       </div>
-      <div class="kpi-card">
-        <div class="kpi-icon" style="background:rgba(124,106,247,0.12);">🏆</div>
+    </div>
+
+    <div id="expiry-banner" style="display:none;">
+      <div class="restock-alert expiry-alert">
+        <span class="restock-icon" aria-label="Expiry warning">⏰</span>
         <div>
-          <div class="kpi-label">Top Product</div>
-          <div class="kpi-value" id="kpi-top" style="font-size:16px;">—</div>
+          <div class="restock-title expiry-title">Near Expiry</div>
+          <div id="expiry-list" class="restock-items"></div>
         </div>
       </div>
-      <div class="kpi-card">
-        <div class="kpi-icon" style="background:rgba(216,90,48,0.12);">💰</div>
+    </div>
+
+    <!-- ── Workspace Nav ──────────────────────────────────── -->
+    <div class="workspace-switcher workspace-switcher-inline workspace-switcher-unified">
+      <div class="workspace-switcher-copy">
+        <div class="workspace-switcher-title">Quick Views</div>
+      </div>
+      <div class="workspace-switcher-actions">
+        <button type="button" class="workspace-nav-btn active" data-view-target="home"
+          onclick="switchViewMode('home')" aria-label="Home view" aria-pressed="true">Home</button>
+        <button type="button" class="workspace-nav-btn" data-view-target="inventory"
+          onclick="switchViewMode('inventory')" aria-label="Inventory view" aria-pressed="false">Inventory</button>
+        <button type="button" class="workspace-nav-btn" data-view-target="insights"
+          onclick="switchViewMode('insights')" aria-label="Analytics Dashboard" aria-pressed="false">Insights</button>
+        <button type="button" class="workspace-nav-btn" data-view-target="reports"
+          onclick="switchViewMode('reports')" aria-label="Reports view" aria-pressed="false">Reports</button>
+        <button type="button" id="toggle-timeline" class="workspace-nav-btn"
+          onclick="switchViewMode('timeline')" aria-label="Inventory Timeline" aria-pressed="false">Inventory Timeline</button>
+      </div>
+    </div>
+
+    <!-- ====================================================
+         VIEW: HOME
+         Shows: goal tracker, summary cards, smart insights,
+                product form, product table, transactions
+         ==================================================== -->
+
+    <!-- Profit Goal Tracker — home only -->
+    <div class="goal-tracker" data-view="home">
+      <div class="goal-header">
+        <span class="goal-title">📊 Daily Profit Goal</span>
+        <div style="display:flex;gap:8px;align-items:center;">
+          <input type="number" id="goal-input" placeholder="Set goal..."
+            style="height:32px;width:130px;padding:0 10px;border:1px solid var(--card-border);border-radius:8px;background:var(--input-bg);color:var(--text);font-size:13px;outline:none;"
+            aria-label="Daily profit goal" />
+          <button onclick="setGoal()" class="sell-btn" style="height:32px;" aria-label="Set goal">Set</button>
+        </div>
+      </div>
+      <div class="goal-bar-track">
+        <div id="goal-bar" class="goal-bar-fill"></div>
+      </div>
+      <div id="goal-label" style="font-size:13px;color:var(--muted);margin-top:8px;">
+        Set a daily profit goal above
+      </div>
+    </div>
+
+    <!-- Summary Cards — home only -->
+    <div class="summary" data-view="home">
+      <div class="card income-card">
+        <p>Total Revenue</p>
+        <h2 id="total-income">₹0</h2>
+        <div id="revenue-trend" style="font-size:12px;margin-top:6px;font-weight:600;"></div>
+      </div>
+      <div class="card expense-card">
+        <p>Total Cost</p>
+        <h2 id="total-expense">₹0</h2>
+      </div>
+      <div class="card profit-card">
+        <p>Gross Profit</p>
+        <h2 id="net-profit">₹0</h2>
+      </div>
+      <div class="card" style="border-color:rgba(124,106,247,0.3);">
+        <p>Sales Profit</p>
+        <h2 id="total-profit" style="color:#7c6af7;">₹0</h2>
+      </div>
+    </div>
+
+    <!-- Smart Insights — home only -->
+    <div class="insights-grid" data-view="home">
+      <div class="insight-card">
+        <div class="insight-header">
+          <span class="insight-icon" style="background:rgba(29,158,117,0.12);">📊</span>
+          <span class="insight-title">Today's Summary</span>
+        </div>
+        <div class="insight-stats">
+          <div class="insight-stat">
+            <div class="insight-stat-label">Revenue</div>
+            <div class="insight-stat-value" id="summary-rev">₹0</div>
+          </div>
+          <div class="insight-stat">
+            <div class="insight-stat-label">Profit</div>
+            <div class="insight-stat-value" id="summary-profit">₹0</div>
+          </div>
+          <div class="insight-stat">
+            <div class="insight-stat-label">Items Sold</div>
+            <div class="insight-stat-value" id="summary-items">0</div>
+          </div>
+        </div>
+      </div>
+      <div class="insight-card">
+        <div class="insight-header">
+          <span class="insight-icon" style="background:rgba(234,179,8,0.12);">🏆</span>
+          <span class="insight-title">Best Selling Day</span>
+        </div>
+        <div id="best-day" style="font-size:15px;font-weight:700;color:var(--text);margin-top:12px;">
+          Not enough data yet
+        </div>
+        <div style="font-size:12px;color:var(--muted);margin-top:6px;">Based on all time transactions</div>
+      </div>
+      <div class="insight-card">
+        <div class="insight-header">
+          <span class="insight-icon" style="background:rgba(216,90,48,0.12);">⚠️</span>
+          <span class="insight-title">Low Margin Products</span>
+        </div>
+        <div id="margin-warnings" style="margin-top:12px;display:flex;flex-wrap:wrap;gap:8px;">
+          <span style="color:#1D9E75;font-size:13px;">All products have healthy margins.</span>
+        </div>
+        <div style="font-size:12px;color:var(--muted);margin-top:8px;">Products with margin below 10%</div>
+      </div>
+    </div>
+
+    <!-- Product Form — home only -->
+    <div class="form-section" data-view="home">
+      <div class="form-grid" style="grid-template-columns: repeat(3, 1fr);">
+        <div class="form-group">
+          <label for="prod-name">Product Name</label>
+          <input type="text" id="prod-name" placeholder="e.g. Rice" />
+        </div>
+        <div class="form-group">
+          <label for="prod-brand">Brand</label>
+          <input type="text" id="prod-brand" placeholder="e.g. Tata" />
+        </div>
+        <div class="form-group">
+          <label for="prod-variant">Size / Variant</label>
+          <input type="text" id="prod-variant" placeholder="e.g. 1kg, 500ml" />
+        </div>
+        <div class="form-group">
+          <label for="prod-category">Category</label>
+          <input type="text" id="prod-category" placeholder="e.g. Grains" />
+        </div>
+        <div class="form-group">
+          <label for="prod-sku">Item ID (SKU)</label>
+          <input type="text" id="prod-sku" placeholder="Auto-generated" />
+        </div>
+        <div class="form-group">
+          <label for="prod-cost">Cost Price</label>
+          <input type="number" id="prod-cost" placeholder="0" />
+        </div>
+        <div class="form-group">
+          <label for="prod-price">Selling Price</label>
+          <input type="number" id="prod-price" placeholder="0" />
+        </div>
+        <div class="form-group">
+          <label for="prod-stock">Stock (units)</label>
+          <input type="number" id="prod-stock" placeholder="0" />
+        </div>
+        <div class="form-group">
+          <label for="prod-min">Min Stock Alert</label>
+          <input type="number" id="prod-min" placeholder="e.g. 5" />
+        </div>
+        <div class="form-group">
+          <label for="prod-batch">Batch Number</label>
+          <input type="text" id="prod-batch" placeholder="e.g. LOT-042" />
+        </div>
+        <div class="form-group">
+          <label for="prod-expiry">Expiry Date</label>
+          <input type="date" id="prod-expiry" />
+        </div>
+      </div>
+      <button onclick="addProduct()" style="margin-top:14px;">+ Add Product</button>
+    </div>
+
+    <!-- Search Bar — home only -->
+    <div class="search-bar" data-view="home">
+      <div class="search-group">
+        <span class="search-icon" aria-hidden="true">🔍</span>
+        <input type="text" id="search-input" placeholder="Search products…"
+          oninput="setSearch(this.value)" aria-label="Search products" />
+      </div>
+      <select id="filter-category" onchange="setCategory(this.value)" aria-label="Filter by category">
+        <option value="all">All Categories</option>
+      </select>
+      <select onchange="setSort(this.value)" aria-label="Sort products">
+        <option value="none">Sort by…</option>
+        <option value="stock-asc">Stock: Low → High</option>
+        <option value="stock-desc">Stock: High → Low</option>
+        <option value="price-asc">Price: Low → High</option>
+        <option value="price-desc">Price: High → Low</option>
+      </select>
+    </div>
+
+    <!-- Products Table — home only -->
+    <div class="section-title" data-view="home">Products</div>
+    <div class="table-wrap" data-view="home" style="margin-bottom:32px;">
+      <table>
+        <thead>
+          <tr>
+            <th>Product / SKU</th>
+            <th>Category</th>
+            <th>Brand</th>
+            <th>Variant</th>
+            <th>Cost Price</th>
+            <th>Sell Price</th>
+            <th>Margin</th>
+            <th>Stock</th>
+            <th>Min Stock</th>
+            <th>Sell</th>
+            <th>Restock</th>
+            <th>Actions</th>
+          </tr>
+        </thead>
+        <tbody id="prod-body"></tbody>
+      </table>
+    </div>
+
+    <!-- Sales Transactions — home only -->
+    <div class="section-title" data-view="home">Sales Transactions</div>
+    <!-- Date filter lives inside home view too -->
+    <div class="date-filter-bar" data-view="home">
+      <div style="display:flex;align-items:center;gap:8px;">
+        <span style="font-size:13px;color:var(--muted);font-weight:600;">FROM</span>
+        <input type="date" id="date-from" onchange="setDateFrom(this.value)"
+          style="height:36px;padding:0 10px;border:1px solid var(--card-border);border-radius:8px;background:var(--input-bg);color:var(--text);font-size:13px;outline:none;"
+          aria-label="Start date" />
+      </div>
+      <div style="display:flex;align-items:center;gap:8px;">
+        <span style="font-size:13px;color:var(--muted);font-weight:600;">TO</span>
+        <input type="date" id="date-to" onchange="setDateTo(this.value)"
+          style="height:36px;padding:0 10px;border:1px solid var(--card-border);border-radius:8px;background:var(--input-bg);color:var(--text);font-size:13px;outline:none;"
+          aria-label="End date" />
+      </div>
+      <button onclick="clearDateFilter()" class="export-btn" style="border-color:rgba(107,114,128,0.4);color:var(--muted);" aria-label="Clear filter">
+        ✕ Clear Filter
+      </button>
+    </div>
+    <div id="date-stats" data-view="home" style="display:none;gap:12px;margin-bottom:16px;flex-wrap:wrap;"></div>
+    <div id="date-range-insights" data-view="home" class="range-insights-grid" style="display:none;"></div>
+
+    <div class="table-wrap" data-view="home" style="margin-bottom:32px;">
+      <table>
+        <thead>
+          <tr>
+            <th>Date</th>
+            <th>Product</th>
+            <th>Qty</th>
+            <th>Unit Price</th>
+            <th>Total</th>
+            <th>Profit</th>
+            <th>Delete</th>
+          </tr>
+        </thead>
+        <tbody id="txn-body"></tbody>
+      </table>
+    </div>
+
+    <!-- ====================================================
+         VIEW: INSIGHTS  →  Analytics Dashboard ONLY
+         ==================================================== -->
+    <section id="feature-analytics" class="feature-panel" data-view="insights">
+      <div class="feature-panel-header">
         <div>
-          <div class="kpi-label">Revenue Today</div>
-          <div class="kpi-value" id="kpi-revenue">₹0</div>
+          <div class="feature-panel-kicker">Analytics</div>
+          <div class="feature-panel-title">Analytics Dashboard</div>
+        </div>
+        <button type="button" class="feature-panel-close"
+          onclick="switchViewMode('home')" aria-label="Back to home">← Back</button>
+      </div>
+      <div class="dashboard-grid">
+        <div class="kpi-grid">
+          <div class="kpi-card">
+            <div class="kpi-icon" style="background:rgba(29,158,117,0.12);">📦</div>
+            <div>
+              <div class="kpi-label">Items Sold Today</div>
+              <div class="kpi-value" id="kpi-sold">0</div>
+            </div>
+          </div>
+          <div class="kpi-card">
+            <div class="kpi-icon" style="background:rgba(124,106,247,0.12);">🏆</div>
+            <div>
+              <div class="kpi-label">Top Product</div>
+              <div class="kpi-value" id="kpi-top" style="font-size:16px;">—</div>
+            </div>
+          </div>
+          <div class="kpi-card">
+            <div class="kpi-icon" style="background:rgba(216,90,48,0.12);">💰</div>
+            <div>
+              <div class="kpi-label">Revenue Today</div>
+              <div class="kpi-value" id="kpi-revenue">₹0</div>
+            </div>
+          </div>
+          <div class="kpi-card">
+            <div class="kpi-icon" style="background:rgba(234,179,8,0.12);">📈</div>
+            <div>
+              <div class="kpi-label">Profit Today</div>
+              <div class="kpi-value" id="kpi-profit">₹0</div>
+            </div>
+          </div>
+        </div>
+        <div class="chart-card">
+          <div class="chart-label">Revenue — Last 7 Days</div>
+          <div style="position:relative;height:220px;">
+            <canvas id="barChart"></canvas>
+          </div>
+          <div class="bar-legend">
+            <span><i style="background:#1D9E75;"></i> Revenue</span>
+            <span><i style="background:#7c6af7;"></i> Profit</span>
+          </div>
+        </div>
+        <div class="chart-card">
+          <div class="chart-label">Revenue by Product</div>
+          <div style="position:relative;height:220px;">
+            <canvas id="doughnutChart"></canvas>
+          </div>
+          <div id="donut-legend" style="margin-top:12px;display:flex;flex-wrap:wrap;gap:8px;"></div>
         </div>
       </div>
-      <div class="kpi-card">
-        <div class="kpi-icon" style="background:rgba(234,179,8,0.12);">📈</div>
+    </section>
+
+    <!-- ====================================================
+         VIEW: INVENTORY  →  Stock Watch ONLY
+         ==================================================== -->
+    <section id="feature-stock" class="feature-panel" data-view="inventory">
+      <div class="feature-panel-header">
         <div>
-          <div class="kpi-label">Profit Today</div>
-          <div class="kpi-value" id="kpi-profit">₹0</div>
+          <div class="feature-panel-kicker">Inventory</div>
+          <div class="feature-panel-title">Stock Watch</div>
         </div>
+        <button type="button" class="feature-panel-close"
+          onclick="switchViewMode('home')" aria-label="Back to home">← Back</button>
       </div>
-    </div>
-    <div class="chart-card">
-      <div class="chart-label">Revenue — Last 7 Days</div>
-      <div style="position:relative;height:220px;">
-        <canvas id="barChart"></canvas>
+
+      <div class="section-title">
+        Dead Stock
+        <span id="dead-count" class="dead-count-badge">0</span>
       </div>
-      <div class="bar-legend">
-        <span><i style="background:#1D9E75;"></i> Revenue</span>
-        <span><i style="background:#7c6af7;"></i> Profit</span>
+      <div class="dead-stock-controls">
+        <span style="font-size:13px;color:var(--muted);">No sales in</span>
+        <input type="range" min="1" max="30" value="7" step="1"
+          oninput="setDeadStockDays(this.value)" style="width:160px;"
+          aria-label="Days without sales threshold" />
+        <span id="days-label" style="font-size:13px;font-weight:700;color:var(--text);min-width:60px;">7 days</span>
       </div>
-    </div>
-    <div class="chart-card">
-      <div class="chart-label">Revenue by Product</div>
-      <div style="position:relative;height:220px;">
-        <canvas id="doughnutChart"></canvas>
+      <div class="table-wrap" style="margin-bottom:32px;">
+        <table>
+          <thead>
+            <tr>
+              <th>Product</th>
+              <th>Last Sale</th>
+              <th>Stock</th>
+              <th>Idle Value</th>
+              <th>Action</th>
+            </tr>
+          </thead>
+          <tbody id="dead-body"></tbody>
+        </table>
       </div>
-      <div id="donut-legend" style="margin-top:12px;display:flex;flex-wrap:wrap;gap:8px;"></div>
-    </div>
-  </div>
-  </section>
 
-  <!-- Products Section -->
-  <div class="section-title">Products</div>
-  <div class="form-section core-workspace">
-    <div class="form-grid" style="grid-template-columns: repeat(3, 1fr);">
-      <div class="form-group">
-        <label>Product Name</label>
-        <input type="text" id="prod-name" placeholder="e.g. Rice" />
+      <div class="section-title">Restock History</div>
+      <div class="table-wrap" style="margin-bottom:32px;">
+        <table>
+          <thead>
+            <tr>
+              <th>Date</th>
+              <th>Product</th>
+              <th>Qty Added</th>
+              <th>Cost Per Unit</th>
+              <th>Total Paid</th>
+            </tr>
+          </thead>
+          <tbody id="restock-body"></tbody>
+        </table>
       </div>
-      <div class="form-group">
-        <label>Brand</label>
-        <input type="text" id="prod-brand" placeholder="e.g. Tata" />
+    </section>
+
+    <!-- ====================================================
+         VIEW: TIMELINE  →  Inventory Timeline ONLY
+         ==================================================== -->
+    <section id="feature-timeline" class="feature-panel" data-view="timeline">
+      <div class="feature-panel-header">
+        <div>
+          <div class="feature-panel-kicker">Movements</div>
+          <div class="feature-panel-title">Inventory Timeline</div>
+        </div>
+        <button type="button" class="feature-panel-close"
+          onclick="switchViewMode('home')" aria-label="Back to home">← Back</button>
       </div>
-      <div class="form-group">
-        <label>Size / Variant</label>
-        <input type="text" id="prod-variant" placeholder="e.g. 1kg, 500ml" />
+      <div class="table-wrap" style="margin-bottom:32px;">
+        <table>
+          <thead>
+            <tr>
+              <th>Date &amp; Time</th>
+              <th>Product</th>
+              <th>Action</th>
+              <th>Details</th>
+            </tr>
+          </thead>
+          <tbody id="movement-body"></tbody>
+        </table>
       </div>
-      <div class="form-group">
-        <label>Category</label>
-        <input type="text" id="prod-category" placeholder="e.g. Grains" />
+    </section>
+
+    <!-- ====================================================
+         VIEW: REPORTS  →  Reports Lab ONLY
+         ==================================================== -->
+    <section id="feature-reports" class="feature-panel" data-view="reports">
+      <div class="feature-panel-header">
+        <div>
+          <div class="feature-panel-kicker">Analytics</div>
+          <div class="feature-panel-title">Reports Lab</div>
+        </div>
+        <button type="button" class="feature-panel-close"
+          onclick="switchViewMode('home')" aria-label="Back to home">← Back</button>
       </div>
-      <div class="form-group">
-        <label>Item ID (SKU)</label>
-        <input type="text" id="prod-sku" placeholder="Auto-generated" />
+
+      <!-- Break-even Calculator -->
+      <div class="section-title">
+        Break-even Calculator
+        <span style="font-size:11px;color:var(--muted);font-weight:400;margin-left:8px;">based on today's restock</span>
       </div>
-      <div class="form-group">
-        <label>Cost Price</label>
-        <input type="number" id="prod-cost" placeholder="0" />
+      <div id="breakeven-overall"
+        style="font-size:14px;font-weight:700;margin-bottom:12px;padding:14px 18px;background:var(--card-bg);border:1px solid var(--card-border);border-radius:12px;">
+        No restock costs today.
       </div>
-      <div class="form-group">
-        <label>Selling Price</label>
-        <input type="number" id="prod-price" placeholder="0" />
+      <div class="table-wrap" style="margin-bottom:32px;">
+        <table>
+          <thead>
+            <tr>
+              <th>Product</th>
+              <th>Profit Per Unit</th>
+              <th>Restock Cost Today</th>
+              <th>Units Needed</th>
+              <th>Status</th>
+            </tr>
+          </thead>
+          <tbody id="breakeven-body">
+            <tr><td colspan="5" class="empty">No products yet.</td></tr>
+          </tbody>
+        </table>
       </div>
-      <div class="form-group">
-        <label>Stock (units)</label>
-        <input type="number" id="prod-stock" placeholder="0" />
+
+      <!-- Category Profit Report -->
+      <div class="section-title">Category Profit Report</div>
+      <div class="table-wrap" style="margin-bottom:32px;">
+        <table>
+          <thead>
+            <tr>
+              <th>Category</th>
+              <th>Products</th>
+              <th>Revenue</th>
+              <th>Cost</th>
+              <th>Profit</th>
+              <th>Revenue Share</th>
+            </tr>
+          </thead>
+          <tbody id="cat-report-body">
+            <tr><td colspan="6" class="empty">No sales data yet.</td></tr>
+          </tbody>
+        </table>
       </div>
-      <div class="form-group">
-        <label>Min Stock Alert</label>
-        <input type="number" id="prod-min" placeholder="e.g. 5" />
+
+      <!-- Monthly / Weekly Report -->
+      <div class="section-title">Sales Report</div>
+      <div style="display:flex;gap:8px;margin-bottom:14px;">
+        <button class="export-btn csv-btn" onclick="renderReport('monthly')" aria-label="Monthly report">📅 Monthly</button>
+        <button class="export-btn pdf-btn" onclick="renderReport('weekly')" aria-label="Weekly report">📆 Weekly</button>
       </div>
-      <div class="form-group">
-        <label>Batch Number</label>
-        <input type="text" id="prod-batch" placeholder="e.g. LOT-042" />
+      <div class="table-wrap" style="margin-bottom:32px;">
+        <table>
+          <thead>
+            <tr>
+              <th id="report-title">Report</th>
+              <th>Revenue</th>
+              <th>Cost</th>
+              <th>Profit</th>
+              <th>Items Sold</th>
+            </tr>
+          </thead>
+          <tbody id="report-body">
+            <tr><td colspan="5" class="empty">Click Monthly or Weekly to load report.</td></tr>
+          </tbody>
+        </table>
       </div>
-      <div class="form-group">
-        <label>Expiry Date</label>
-        <input type="date" id="prod-expiry" />
+
+      <!-- Date Range Filter -->
+      <div class="date-filter-bar">
+        <div style="display:flex;align-items:center;gap:8px;">
+          <span style="font-size:13px;color:var(--muted);font-weight:600;">FROM</span>
+          <input type="date" id="date-from-reports" onchange="setDateFrom(this.value)"
+            style="height:36px;padding:0 10px;border:1px solid var(--card-border);border-radius:8px;background:var(--input-bg);color:var(--text);font-size:13px;outline:none;"
+            aria-label="Start date" />
+        </div>
+        <div style="display:flex;align-items:center;gap:8px;">
+          <span style="font-size:13px;color:var(--muted);font-weight:600;">TO</span>
+          <input type="date" id="date-to-reports" onchange="setDateTo(this.value)"
+            style="height:36px;padding:0 10px;border:1px solid var(--card-border);border-radius:8px;background:var(--input-bg);color:var(--text);font-size:13px;outline:none;"
+            aria-label="End date" />
+        </div>
+        <button onclick="clearDateFilter()" class="export-btn" style="border-color:rgba(107,114,128,0.4);color:var(--muted);" aria-label="Clear date filter">
+          ✕ Clear Filter
+        </button>
       </div>
-    </div>
-    <button onclick="addProduct()" style="margin-top:14px;">+ Add Product</button>
-  </div>
+      <div id="date-stats" style="display:none;gap:12px;margin-bottom:16px;flex-wrap:wrap;"></div>
+      <div id="date-range-insights" class="range-insights-grid" style="display:none;"></div>
+    </section>
 
-  <!-- Search Bar -->
-  <div class="search-bar core-workspace">
-    <div class="search-group">
-      <span class="search-icon">🔍</span>
-      <input type="text" id="search-input" placeholder="Search products..." oninput="setSearch(this.value)" />
-    </div>
-    <select id="filter-category" onchange="setCategory(this.value)">
-      <option value="all">All Categories</option>
-    </select>
-    <select onchange="setSort(this.value)">
-      <option value="none">Sort by...</option>
-      <option value="stock-asc">Stock: Low to High</option>
-      <option value="stock-desc">Stock: High to Low</option>
-      <option value="price-asc">Price: Low to High</option>
-      <option value="price-desc">Price: High to Low</option>
-    </select>
-  </div>
-
-  <!-- Products Table -->
-  <div class="table-wrap core-workspace" style="margin-bottom:32px;">
-    <table>
-      <thead>
-        <tr>
-          <th>Product / SKU</th>
-          <th>Category</th>
-          <th>Brand</th>
-          <th>Variant</th>
-          <th>Cost Price</th>
-          <th>Sell Price</th>
-          <th>Margin</th>
-          <th>Stock</th>
-          <th>Min Stock</th>
-          <th>Sell</th>
-          <th>Restock</th>
-          <th>Actions</th>
-        </tr>
-      </thead>
-      <tbody id="prod-body"></tbody>
-    </table>
-  </div>
-
-  <section id="feature-stock" class="feature-panel feature-panel-hidden view-section" data-view="inventory">
-    <div class="feature-panel-header">
-      <div>
-        <div class="feature-panel-kicker">Optional View</div>
-        <div class="feature-panel-title">Stock Watch</div>
-      </div>
-      <button type="button" class="feature-panel-close" onclick="toggleFeaturePanel('stock')">Hide</button>
-    </div>
-  <!-- Dead Stock Section -->
-  <div class="section-title" style="margin-top:32px;">
-    Dead Stock
-    <span id="dead-count" class="dead-count-badge">0</span>
-  </div>
-  <div class="dead-stock-controls">
-    <span style="font-size:13px;color:var(--muted);">No sales in</span>
-    <input type="range" min="1" max="30" value="7" step="1"
-      oninput="setDeadStockDays(this.value)" style="width:160px;" />
-    <span id="days-label" style="font-size:13px;font-weight:700;color:var(--text);min-width:60px;">7 days</span>
-  </div>
-  <div class="table-wrap" style="margin-bottom:32px;">
-    <table>
-      <thead>
-        <tr>
-          <th>Product</th>
-          <th>Last Sale</th>
-          <th>Stock</th>
-          <th>Idle Value</th>
-          <th>Action</th>
-        </tr>
-      </thead>
-      <tbody id="dead-body"></tbody>
-    </table>
-  </div>
-
-  <!-- Restock History -->
-  <div class="section-title" style="margin-top:32px;">Restock History</div>
-  <div class="table-wrap view-section" data-view="inventory" style="margin-bottom:32px;">
-    <table>
-      <thead>
-        <tr>
-          <th>Date</th>
-          <th>Product</th>
-          <th>Qty Added</th>
-          <th>Cost Per Unit</th>
-          <th>Total Paid</th>
-        </tr>
-      </thead>
-      <tbody id="restock-body"></tbody>
-    </table>
-  </div>
-  </section>
-
-  <section id="feature-timeline" class="feature-panel feature-panel-hidden view-section" data-view="insights">
-    <div class="feature-panel-header">
-      <div>
-        <div class="feature-panel-kicker">Optional View</div>
-        <div class="feature-panel-title">Inventory Timeline</div>
-      </div>
-      <button type="button" class="feature-panel-close" onclick="toggleFeaturePanel('timeline')">Hide</button>
-    </div>
-  <div class="section-title" style="margin-top:32px;">Inventory Timeline</div>
-  <div class="table-wrap view-section" data-view="insights" style="margin-bottom:32px;">
-    <table>
-      <thead>
-        <tr>
-          <th>Date</th>
-          <th>Product</th>
-          <th>Action</th>
-          <th>Details</th>
-        </tr>
-      </thead>
-      <tbody id="movement-body"></tbody>
-    </table>
-  </div>
-
-  </section>
-
-  <section id="feature-reports" class="feature-panel feature-panel-hidden view-section" data-view="reports">
-    <div class="feature-panel-header">
-      <div>
-        <div class="feature-panel-kicker">Optional View</div>
-        <div class="feature-panel-title">Reports Lab</div>
-      </div>
-      <button type="button" class="feature-panel-close" onclick="toggleFeaturePanel('reports')">Hide</button>
-    </div>
-  <!-- Break-even Calculator -->
-<div class="section-title" style="margin-top:32px;">
-  Break-even Calculator
-  <span style="font-size:11px;color:var(--muted);font-weight:400;margin-left:8px;">based on today's restock</span>
-</div>
-
-<div id="breakeven-overall"
-  style="font-size:14px;font-weight:700;margin-bottom:12px;padding:14px 18px;background:var(--card-bg);border:1px solid var(--card-border);border-radius:12px;">
-  No restock costs today.
-</div>
-
-<div class="table-wrap" style="margin-bottom:32px;">
-  <table>
-    <thead>
-      <tr>
-        <th>Product</th>
-        <th>Profit Per Unit</th>
-        <th>Restock Cost Today</th>
-        <th>Units Needed</th>
-        <th>Status</th>
-      </tr>
-    </thead>
-    <tbody id="breakeven-body">
-      <tr><td colspan="5" class="empty">No products yet.</td></tr>
-    </tbody>
-  </table>
-</div>
-
-  <!-- Category Profit Report -->
-  <div class="section-title" style="margin-top:32px;">
-    Category Profit Report
-  </div>
-  
-  <div class="table-wrap" style="margin-bottom:32px;">
-    <table>
-      <thead>
-        <tr>
-          <th>Category</th>
-          <th>Products</th>
-          <th>Revenue</th>
-          <th>Cost</th>
-          <th>Profit</th>
-          <th>Revenue Share</th>
-        </tr>
-      </thead>
-      <tbody id="cat-report-body">
-        <tr><td colspan="6" class="empty">No sales data yet.</td></tr>
-      </tbody>
-    </table>
-  </div>
-
-<!-- Monthly/Weekly Report -->
-<div class="section-title" style="margin-top:32px;">
-  Sales Report
-</div>
-
-<div style="display:flex;gap:8px;margin-bottom:14px;">
-  <button class="export-btn csv-btn" onclick="renderReport('monthly')">📅 Monthly</button>
-  <button class="export-btn pdf-btn" onclick="renderReport('weekly')">📆 Weekly</button>
-</div>
-
-<div class="table-wrap" style="margin-bottom:32px;">
-  <table>
-    <thead>
-      <tr>
-        <th id="report-title">Report</th>
-        <th>Revenue</th>
-        <th>Cost</th>
-        <th>Profit</th>
-        <th>Items Sold</th>
-      </tr>
-    </thead>
-    <tbody id="report-body">
-      <tr><td colspan="5" class="empty">Click Monthly or Weekly to load report.</td></tr>
-    </tbody>
-  </table>
-</div>
-
-<!-- Date Range Filter -->
-<div class="date-filter-bar">
-  <div style="display:flex;align-items:center;gap:8px;">
-    <span style="font-size:13px;color:var(--muted);font-weight:600;">FROM</span>
-    <input type="date" id="date-from" onchange="setDateFrom(this.value)"
-      style="height:36px;padding:0 10px;border:1px solid var(--card-border);border-radius:8px;background:var(--input-bg);color:var(--text);font-size:13px;outline:none;" />
-  </div>
-  <div style="display:flex;align-items:center;gap:8px;">
-    <span style="font-size:13px;color:var(--muted);font-weight:600;">TO</span>
-    <input type="date" id="date-to" onchange="setDateTo(this.value)"
-      style="height:36px;padding:0 10px;border:1px solid var(--card-border);border-radius:8px;background:var(--input-bg);color:var(--text);font-size:13px;outline:none;" />
-  </div>
-  <button onclick="clearDateFilter()" class="export-btn" style="border-color:rgba(107,114,128,0.4);color:var(--muted);">
-    ✕ Clear Filter
-  </button>
-</div>
-
-<!-- Date Stats -->
-<div id="date-stats" style="display:none;gap:12px;margin-bottom:16px;flex-wrap:wrap;"></div>
-<div id="date-range-insights" class="range-insights-grid" style="display:none;"></div>
-
-  </section>
-
-  <!-- Sales Transactions -->
-  <div class="section-title">Sales Transactions</div>
-  <div class="table-wrap core-workspace" style="margin-bottom:32px;">
-    <table>
-      <thead>
-        <tr>
-          <th>Date</th>
-          <th>Product</th>
-          <th>Qty</th>
-          <th>Unit Price</th>
-          <th>Total</th>
-          <th>Profit</th>
-          <th>Delete</th>
-        </tr>
-      </thead>
-      <tbody id="txn-body"></tbody>
-    </table>
-  </div>
+  </div><!-- /#app-shell -->
 
   <script src="script.js"></script>
-  </div>
 </body>
 </html>
