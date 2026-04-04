@@ -19,11 +19,9 @@
   <script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.js"></script>
   <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
   <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf-autotable/3.6.0/jspdf.plugin.autotable.min.js"></script>
-  
-  <!-- Firebase Compat -->
-  <script src="https://www.gstatic.com/firebasejs/10.10.0/firebase-app-compat.js"></script>
-  <script src="https://www.gstatic.com/firebasejs/10.10.0/firebase-auth-compat.js"></script>
-  <script src="https://www.gstatic.com/firebasejs/10.10.0/firebase-firestore-compat.js"></script>
+  <script src="https://www.gstatic.com/firebaseapps/9.23.0/firebase-app.js"></script>
+  <script src="https://www.gstatic.com/firebaseapps/9.23.0/firebase-auth.js"></script>
+  <script src="https://www.gstatic.com/firebaseapps/9.23.0/firebase-firestore.js"></script>
 </head>
 <body>
   <!-- ====================================================
@@ -116,11 +114,6 @@
             <button type="button" class="profile-dropdown-item danger" onclick="logout()">
               <span class="profile-dropdown-icon">⎋</span>
               <span>Sign out</span>
-            </button>
-            <div class="profile-dropdown-divider"></div>
-            <button type="button" class="profile-dropdown-item danger" onclick="deleteAccount()">
-              <span class="profile-dropdown-icon">🗑</span>
-              <span>Delete account</span>
             </button>
           </div>
         </div>
