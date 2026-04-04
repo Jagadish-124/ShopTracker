@@ -1725,7 +1725,612 @@ function clearAllData() {
     queueUndo('All account data cleared.', snapshot, 'error');
   });
 }
+// ============================================================================
+// BULK CSV IMPORT MODULE
+// Paste this entire block into script.js (before the closing event listeners)
+// ============================================================================
 
+const CSV_FIELDS = [
+  { key: 'name',        label: 'Product Name',   required: true  },
+  { key: 'category',    label: 'Category',        required: false },
+  { key: 'brand',       label: 'Brand',           required: false },
+  { key: 'variant',     label: 'Variant / Size',  required: false },
+  { key: 'sku',         label: 'SKU / Item ID',   required: false },
+  { key: 'cost',        label: 'Cost Price',      required: true  },
+  { key: 'price',       label: 'Selling Price',   required: true  },
+  { key: 'stock',       label: 'Stock (units)',   required: true  },
+  { key: 'minStock',    label: 'Min Stock Alert', required: false },
+  { key: 'batchNumber', label: 'Batch Number',    required: false },
+  { key: 'expiryDate',  label: 'Expiry Date',     required: false },
+];
+
+let csvState = {
+  phase:       'upload',   // 'upload' | 'map' | 'preview'
+  rawRows:     [],         // array of string[] (all rows including header)
+  headers:     [],         // detected header row
+  mapping:     {},         // { fieldKey: colIndex | -1 }
+  parsed:      [],         // array of { data, errors, warnings }
+  fileLoaded:  false,
+};
+
+// ── Modal open / close ────────────────────────────────────────────────────────
+
+function openCsvImport() {
+  csvReset();
+  const backdrop = document.getElementById('csv-import-backdrop');
+  backdrop.style.display = 'flex';
+  backdrop.classList.remove('closing');
+  document.getElementById('csv-modal').classList.remove('closing');
+  document.body.style.overflow = 'hidden';
+  // Focus trap seed
+  setTimeout(() => document.getElementById('csv-paste-input')?.focus(), 120);
+}
+
+function closeCsvImport() {
+  const backdrop = document.getElementById('csv-import-backdrop');
+  const modal    = document.getElementById('csv-modal');
+  backdrop.classList.add('closing');
+  modal.classList.add('closing');
+  document.body.style.overflow = '';
+  setTimeout(() => {
+    backdrop.style.display = 'none';
+    backdrop.classList.remove('closing');
+    modal.classList.remove('closing');
+  }, 230);
+}
+
+// Close on backdrop click
+document.addEventListener('click', e => {
+  if (e.target && e.target.id === 'csv-import-backdrop') closeCsvImport();
+});
+
+// Close on Escape — appended to existing keydown listener
+document.addEventListener('keydown', e => {
+  if (e.key === 'Escape' && document.getElementById('csv-import-backdrop')?.style.display !== 'none') {
+    closeCsvImport();
+  }
+});
+
+// ── Template download ─────────────────────────────────────────────────────────
+
+function downloadCsvTemplate() {
+  const header = CSV_FIELDS.map(f => f.label).join(',');
+  const example = [
+    'Rice 5kg,Grains,Tata,5kg,SKU-001,80,120,50,10,LOT-001,2025-12-31',
+    'Wheat Flour 1kg,Grains,Aashirvaad,1kg,,40,65,30,5,,',
+    'Sunflower Oil 1L,Oils,Fortune,1L,,95,145,20,5,LOT-A,2026-06-30',
+  ].join('\n');
+  const csv  = header + '\n' + example;
+  const blob = new Blob([csv], { type: 'text/csv' });
+  const url  = URL.createObjectURL(blob);
+  const a    = Object.assign(document.createElement('a'), { href: url, download: 'shop-tracker-import-template.csv' });
+  a.click();
+  URL.revokeObjectURL(url);
+}
+
+// ── Drag & drop ───────────────────────────────────────────────────────────────
+
+function csvDragOver(e) {
+  e.preventDefault();
+  document.getElementById('csv-drop-zone').classList.add('drag-over');
+}
+
+function csvDragLeave(e) {
+  document.getElementById('csv-drop-zone').classList.remove('drag-over');
+}
+
+function csvDrop(e) {
+  e.preventDefault();
+  document.getElementById('csv-drop-zone').classList.remove('drag-over');
+  const file = e.dataTransfer.files[0];
+  if (file) csvReadFile(file);
+}
+
+function csvFileSelected(e) {
+  const file = e.target.files[0];
+  if (file) csvReadFile(file);
+  e.target.value = '';
+}
+
+function csvReadFile(file) {
+  if (!file.name.toLowerCase().endsWith('.csv') && file.type !== 'text/csv') {
+    toast('Please upload a .csv file', 'error');
+    return;
+  }
+  const reader = new FileReader();
+  reader.onload = ev => csvLoadRawText(ev.target.result);
+  reader.readAsText(file);
+}
+
+// ── Paste input ───────────────────────────────────────────────────────────────
+
+function csvPasteChanged() {
+  const val = document.getElementById('csv-paste-input').value.trim();
+  if (val.length > 10) {
+    // Debounce slightly so it doesn't re-parse on every keystroke
+    clearTimeout(csvState._pasteTimer);
+    csvState._pasteTimer = setTimeout(() => csvLoadRawText(val), 380);
+  } else {
+    csvState.fileLoaded = false;
+    csvSetNextEnabled(false);
+    document.getElementById('csv-footer-info').textContent = 'Upload a CSV file or paste data above to get started.';
+  }
+}
+
+// ── CSV parser ────────────────────────────────────────────────────────────────
+
+function csvParseText(text) {
+  // Handles quoted fields, commas inside quotes, CRLF and LF
+  const lines = text.replace(/\r\n/g, '\n').replace(/\r/g, '\n').split('\n');
+  const rows  = [];
+
+  for (const line of lines) {
+    if (!line.trim()) continue;
+    const row    = [];
+    let field    = '';
+    let inQuotes = false;
+
+    for (let i = 0; i < line.length; i++) {
+      const ch   = line[i];
+      const next = line[i + 1];
+
+      if (inQuotes) {
+        if (ch === '"' && next === '"') { field += '"'; i++; }
+        else if (ch === '"')            { inQuotes = false; }
+        else                            { field += ch; }
+      } else {
+        if (ch === '"') { inQuotes = true; }
+        else if (ch === ',') { row.push(field.trim()); field = ''; }
+        else { field += ch; }
+      }
+    }
+    row.push(field.trim());
+    rows.push(row);
+  }
+  return rows;
+}
+
+function csvLoadRawText(text) {
+  const rows = csvParseText(text);
+  if (rows.length < 2) {
+    toast('CSV needs at least a header row and one data row', 'error');
+    return;
+  }
+
+  csvState.rawRows    = rows;
+  csvState.headers    = rows[0];
+  csvState.fileLoaded = true;
+
+  // Auto-detect mapping using fuzzy header matching
+  csvState.mapping = autoDetectMapping(csvState.headers);
+
+  const dataCount = rows.length - 1;
+  document.getElementById('csv-footer-info').innerHTML =
+    `<strong>${dataCount} row${dataCount !== 1 ? 's' : ''}</strong> detected — review column mapping below.`;
+
+  csvSetPhase('map');
+  csvBuildMapper();
+  csvSetNextEnabled(true);
+}
+
+// ── Auto column detection ────────────────────────────────────────────────────
+
+function autoDetectMapping(headers) {
+  const aliases = {
+    name:        ['name', 'product', 'product name', 'item', 'item name', 'title', 'description'],
+    category:    ['category', 'cat', 'type', 'department', 'group'],
+    brand:       ['brand', 'manufacturer', 'make', 'company', 'mfr'],
+    variant:     ['variant', 'size', 'weight', 'unit', 'pack size', 'variation'],
+    sku:         ['sku', 'item id', 'item code', 'code', 'barcode', 'upc', 'id'],
+    cost:        ['cost', 'cost price', 'purchase price', 'buy price', 'cp', 'buying price', 'cost per unit'],
+    price:       ['price', 'selling price', 'sell price', 'mrp', 'sale price', 'retail price', 'sp'],
+    stock:       ['stock', 'qty', 'quantity', 'units', 'inventory', 'on hand', 'available'],
+    minStock:    ['min stock', 'minimum stock', 'reorder point', 'reorder level', 'min qty', 'alert'],
+    batchNumber: ['batch', 'batch number', 'lot', 'lot number', 'batch no'],
+    expiryDate:  ['expiry', 'expiry date', 'exp date', 'expiration', 'best before', 'use by', 'exp'],
+  };
+
+  const mapping = {};
+  CSV_FIELDS.forEach(f => { mapping[f.key] = -1; });
+
+  headers.forEach((h, idx) => {
+    const normalized = h.toLowerCase().trim();
+    for (const [key, aliasList] of Object.entries(aliases)) {
+      if (mapping[key] !== -1) continue; // already mapped
+      if (aliasList.some(a => normalized.includes(a) || a.includes(normalized))) {
+        mapping[key] = idx;
+        break;
+      }
+    }
+  });
+
+  return mapping;
+}
+
+// ── Column mapper UI ──────────────────────────────────────────────────────────
+
+function csvBuildMapper() {
+  const grid = document.getElementById('csv-mapper-grid');
+  grid.innerHTML = '';
+
+  const headerOptions = csvState.headers.map((h, i) =>
+    `<option value="${i}">${h || `Column ${i + 1}`}</option>`
+  ).join('');
+  const skipOption = `<option value="-1">— Skip this field —</option>`;
+
+  CSV_FIELDS.forEach(field => {
+    const selectedIdx = csvState.mapping[field.key] ?? -1;
+
+    grid.insertAdjacentHTML('beforeend', `
+      <div class="csv-mapper-col-label">
+        <span class="${field.required ? 'csv-required-dot' : 'csv-optional-dot'}"></span>
+        ${field.label}${field.required ? ' *' : ''}
+      </div>
+      <div class="csv-mapper-arrow">→</div>
+      <select
+        class="csv-mapper-select"
+        data-field="${field.key}"
+        onchange="csvUpdateMapping('${field.key}', parseInt(this.value))"
+        aria-label="Map ${field.label}"
+      >
+        ${skipOption}${headerOptions}
+      </select>
+    `);
+
+    // Set selected
+    const sel = grid.querySelector(`select[data-field="${field.key}"]`);
+    if (sel) sel.value = selectedIdx;
+  });
+}
+
+function csvUpdateMapping(fieldKey, colIdx) {
+  csvState.mapping[fieldKey] = colIdx;
+  // Re-run preview if already in preview phase
+  if (csvState.phase === 'preview') csvBuildPreview();
+}
+
+// ── Validation & preview ─────────────────────────────────────────────────────
+
+const REQUIRED_FIELDS = CSV_FIELDS.filter(f => f.required).map(f => f.key);
+
+function csvValidateMapping() {
+  const missing = REQUIRED_FIELDS.filter(k => (csvState.mapping[k] ?? -1) === -1);
+  return missing;
+}
+
+function csvParseAndValidateRows() {
+  const dataRows = csvState.rawRows.slice(1); // skip header
+  const results  = [];
+
+  dataRows.forEach((row, rowIdx) => {
+    const errors   = [];
+    const warnings = [];
+    const data     = {};
+
+    CSV_FIELDS.forEach(field => {
+      const colIdx = csvState.mapping[field.key] ?? -1;
+      const raw    = colIdx >= 0 ? (row[colIdx] || '').trim() : '';
+
+      if (field.key === 'name') {
+        data.name = raw;
+        if (!raw) errors.push(`Row ${rowIdx + 2}: Product name is required`);
+      } else if (field.key === 'cost') {
+        data.cost = parseFloat(raw);
+        if (!raw)                  errors.push(`Row ${rowIdx + 2}: Cost price is required`);
+        else if (isNaN(data.cost) || data.cost <= 0) errors.push(`Row ${rowIdx + 2}: Cost price must be a positive number (got "${raw}")`);
+      } else if (field.key === 'price') {
+        data.price = parseFloat(raw);
+        if (!raw)                   errors.push(`Row ${rowIdx + 2}: Selling price is required`);
+        else if (isNaN(data.price) || data.price <= 0) errors.push(`Row ${rowIdx + 2}: Selling price must be a positive number (got "${raw}")`);
+      } else if (field.key === 'stock') {
+        data.stock = parseInt(raw);
+        if (!raw)                   errors.push(`Row ${rowIdx + 2}: Stock quantity is required`);
+        else if (isNaN(data.stock) || data.stock < 0) errors.push(`Row ${rowIdx + 2}: Stock must be a non-negative integer (got "${raw}")`);
+      } else if (field.key === 'minStock') {
+        data.minStock = raw ? parseInt(raw) : 5;
+        if (raw && isNaN(data.minStock)) warnings.push(`Row ${rowIdx + 2}: Min stock ignored (not a number), defaulting to 5`);
+      } else if (field.key === 'expiryDate') {
+        data.expiryDate = raw || '';
+        if (raw && isNaN(new Date(raw).getTime())) warnings.push(`Row ${rowIdx + 2}: Expiry date "${raw}" could not be parsed, will be skipped`);
+      } else {
+        data[field.key] = raw || '';
+      }
+    });
+
+    // Cross-field validation
+    if (!isNaN(data.cost) && !isNaN(data.price) && data.cost > 0 && data.price > 0 && data.cost >= data.price) {
+      errors.push(`Row ${rowIdx + 2}: Cost price (${data.cost}) must be less than selling price (${data.price})`);
+    }
+
+    // Defaults
+    data.category    = data.category    || 'Uncategorized';
+    data.brand       = data.brand       || '—';
+    data.variant     = data.variant     || '—';
+    data.batchNumber = data.batchNumber || '';
+    if (!data.minStock || isNaN(data.minStock)) data.minStock = 5;
+
+    results.push({ data, errors, warnings, rowIdx });
+  });
+
+  csvState.parsed = results;
+  return results;
+}
+
+function csvBuildPreview() {
+  const results = csvParseAndValidateRows();
+
+  const okCount   = results.filter(r => r.errors.length === 0).length;
+  const warnCount = results.filter(r => r.warnings.length > 0).length;
+  const errCount  = results.filter(r => r.errors.length  > 0).length;
+  const allErrors = results.flatMap(r => r.errors);
+
+  // Validation bar
+  document.getElementById('csv-validation-bar').innerHTML = `
+    <span class="csv-val-chip ok">✓ ${okCount} valid</span>
+    ${warnCount ? `<span class="csv-val-chip warn">⚠ ${warnCount} warnings</span>` : ''}
+    ${errCount  ? `<span class="csv-val-chip err">✕ ${errCount} errors</span>`   : ''}
+    <span class="csv-val-detail">${results.length} total row${results.length !== 1 ? 's' : ''}</span>
+  `;
+
+  // Error list
+  const errorList = document.getElementById('csv-error-list');
+  if (allErrors.length) {
+    errorList.style.display = 'flex';
+    errorList.innerHTML = allErrors.map(e => `<div class="csv-error-item">${e}</div>`).join('');
+  } else {
+    errorList.style.display = 'none';
+  }
+
+  // Preview columns (only mapped fields)
+  const mappedFields = CSV_FIELDS.filter(f => (csvState.mapping[f.key] ?? -1) >= 0);
+
+  const thead = document.getElementById('csv-preview-thead');
+  thead.innerHTML = `<tr>${mappedFields.map(f => `<th>${f.label}</th>`).join('')}<th>Status</th></tr>`;
+
+  const tbody = document.getElementById('csv-preview-tbody');
+  tbody.innerHTML = results.map(r => {
+    const cls  = r.errors.length ? 'csv-row-err' : r.warnings.length ? 'csv-row-warn' : 'csv-row-ok';
+    const status = r.errors.length
+      ? `<span style="color:#D85A30;font-size:11px;font-weight:700;">✕ Error</span>`
+      : r.warnings.length
+      ? `<span style="color:#eab308;font-size:11px;font-weight:700;">⚠ Warning</span>`
+      : `<span style="color:#1D9E75;font-size:11px;font-weight:700;">✓ OK</span>`;
+
+    const cells = mappedFields.map(f => {
+      const val = r.data[f.key] ?? '';
+      return `<td title="${String(val)}">${String(val)}</td>`;
+    }).join('');
+
+    return `<tr class="${cls}">${cells}<td>${status}</td></tr>`;
+  }).join('');
+
+  // Footer
+  const importable = okCount;
+  document.getElementById('csv-footer-info').innerHTML =
+    `<strong>${importable}</strong> product${importable !== 1 ? 's' : ''} ready to import` +
+    (errCount ? ` — <span style="color:#D85A30;">${errCount} row${errCount !== 1 ? 's' : ''} with errors will be skipped</span>` : '');
+
+  const nextBtn = document.getElementById('csv-next-btn');
+  nextBtn.textContent = `Import ${importable} Product${importable !== 1 ? 's' : ''} →`;
+  nextBtn.disabled    = importable === 0;
+}
+
+// ── Phase controller ──────────────────────────────────────────────────────────
+
+function csvSetPhase(phase) {
+  csvState.phase = phase;
+
+  document.getElementById('csv-phase-upload').style.display  = phase === 'upload'  ? 'flex' : 'none';
+  document.getElementById('csv-phase-map').style.display     = phase === 'map'     ? 'block' : 'none';
+  document.getElementById('csv-phase-preview').style.display = phase === 'preview' ? 'flex' : 'none';
+
+  // Upload phase needs column flex-direction
+  const uploadPhase = document.getElementById('csv-phase-upload');
+  if (uploadPhase) uploadPhase.style.flexDirection = 'column';
+  if (uploadPhase) uploadPhase.style.gap = '16px';
+
+  // Ensure preview phase also stacks
+  const previewPhase = document.getElementById('csv-phase-preview');
+  if (previewPhase) { previewPhase.style.flexDirection = 'column'; previewPhase.style.gap = '14px'; }
+
+  // Step indicators
+  const steps = ['upload','map','preview','done'];
+  const phaseIdx = { upload: 0, map: 1, preview: 2, done: 3 }[phase] ?? 0;
+
+  ['csv-step-1','csv-step-2','csv-step-3','csv-step-4'].forEach((id, i) => {
+    const el = document.getElementById(id);
+    if (!el) return;
+    el.classList.toggle('active', i === phaseIdx);
+    el.classList.toggle('done',   i < phaseIdx);
+  });
+
+  // Next button label
+  const nextBtn = document.getElementById('csv-next-btn');
+  if (phase === 'upload') {
+    nextBtn.textContent = 'Next →';
+    nextBtn.disabled    = !csvState.fileLoaded;
+  } else if (phase === 'map') {
+    nextBtn.textContent = 'Preview →';
+    nextBtn.disabled    = false;
+  }
+}
+
+function csvNextStep() {
+  if (csvState.phase === 'upload') {
+    if (!csvState.fileLoaded) { toast('Upload or paste CSV data first', 'error'); return; }
+    csvSetPhase('map');
+  } else if (csvState.phase === 'map') {
+    const missing = csvValidateMapping();
+    if (missing.length) {
+      toast(`Map required fields: ${missing.join(', ')}`, 'error');
+      return;
+    }
+    csvBuildPreview();
+    csvSetPhase('preview');
+  } else if (csvState.phase === 'preview') {
+    csvDoImport();
+  }
+}
+
+// ── The actual import ─────────────────────────────────────────────────────────
+
+function csvDoImport() {
+  const validRows = csvState.parsed.filter(r => r.errors.length === 0);
+  if (!validRows.length) { toast('No valid rows to import', 'error'); return; }
+
+  const snapshot = createDataSnapshot();
+
+  let imported = 0;
+  validRows.forEach(({ data }) => {
+    // Generate or use SKU
+    const sku = data.sku || `SKU-${String(skuCounter).padStart(3, '0')}`;
+
+    products.push({
+      id:          nextProdId++,
+      sku,
+      name:        data.name,
+      brand:       data.brand       || '—',
+      variant:     data.variant     || '—',
+      category:    data.category    || 'Uncategorized',
+      cost:        data.cost,
+      price:       data.price,
+      stock:       data.stock,
+      minStock:    data.minStock    || 5,
+      batchNumber: data.batchNumber || '',
+      expiryDate:  data.expiryDate  || '',
+    });
+
+    skuCounter++;
+    imported++;
+  });
+
+  saveCurrentUserData();
+  addMovementEntry('Bulk Import', 'Inventory', `Imported ${imported} product${imported !== 1 ? 's' : ''} via CSV.`);
+
+  render();
+  queueUndo(`${imported} product${imported !== 1 ? 's' : ''} imported.`, snapshot);
+
+  // Show success screen
+  showCsvSuccess(imported);
+}
+
+function showCsvSuccess(count) {
+  const body = document.getElementById('csv-modal-body');
+  body.innerHTML = `
+    <div class="csv-success-screen">
+      <div class="csv-success-icon">✓</div>
+      <div class="csv-success-title">${count} Product${count !== 1 ? 's' : ''} Imported!</div>
+      <div class="csv-success-sub">
+        Your inventory has been updated. You can review the new products in the Products table.
+      </div>
+    </div>
+  `;
+
+  document.getElementById('csv-modal-footer').innerHTML = `
+    <div class="csv-footer-info">
+      <strong>${count} product${count !== 1 ? 's' : ''}</strong> added to your inventory.
+    </div>
+    <div class="csv-footer-actions">
+      <button class="csv-btn-secondary" onclick="csvReset()">Import More</button>
+      <button class="csv-btn-primary" onclick="closeCsvImport()">Done ✓</button>
+    </div>
+  `;
+
+  // Update step indicator
+  ['csv-step-1','csv-step-2','csv-step-3','csv-step-4'].forEach(id => {
+    const el = document.getElementById(id);
+    if (el) { el.classList.remove('active'); el.classList.add('done'); }
+  });
+}
+
+// ── Helpers ───────────────────────────────────────────────────────────────────
+
+function csvSetNextEnabled(enabled) {
+  const btn = document.getElementById('csv-next-btn');
+  if (btn) btn.disabled = !enabled;
+}
+
+function csvReset() {
+  csvState = {
+    phase:      'upload',
+    rawRows:    [],
+    headers:    [],
+    mapping:    {},
+    parsed:     [],
+    fileLoaded: false,
+  };
+
+  // Rebuild body if it was replaced by success screen
+  const body = document.getElementById('csv-modal-body');
+  if (body && !document.getElementById('csv-phase-upload')) {
+    // The success screen replaced the body HTML — reload the modal body
+    // by re-rendering from scratch via a small template
+    body.innerHTML = `
+      <div class="csv-steps" id="csv-steps">
+        <div class="csv-step active" id="csv-step-1"><div class="csv-step-dot">1</div><span>Upload</span></div>
+        <div class="csv-step-line"></div>
+        <div class="csv-step" id="csv-step-2"><div class="csv-step-dot">2</div><span>Map</span></div>
+        <div class="csv-step-line"></div>
+        <div class="csv-step" id="csv-step-3"><div class="csv-step-dot">3</div><span>Review</span></div>
+        <div class="csv-step-line"></div>
+        <div class="csv-step" id="csv-step-4"><div class="csv-step-dot">4</div><span>Import</span></div>
+      </div>
+      <div id="csv-phase-upload" style="display:flex;flex-direction:column;gap:16px;">
+        <div class="csv-template-strip">
+          <div><strong>New to this?</strong> Download our template — fill it in Excel or Google Sheets, then import.</div>
+          <button class="csv-dl-btn" onclick="downloadCsvTemplate()">⬇ Template</button>
+        </div>
+        <div class="csv-drop-zone" id="csv-drop-zone"
+          onclick="document.getElementById('csv-file-input').click()"
+          ondragover="csvDragOver(event)" ondragleave="csvDragLeave(event)" ondrop="csvDrop(event)"
+          role="button" tabindex="0" aria-label="Drop CSV file here or click to browse"
+          onkeydown="if(event.key==='Enter'||event.key===' ')document.getElementById('csv-file-input').click()">
+          <span class="csv-drop-icon">📂</span>
+          <div class="csv-drop-title">Drop your CSV file here</div>
+          <div class="csv-drop-sub">Drag &amp; drop a <strong>.csv</strong> file, or click to browse.</div>
+          <button class="csv-file-btn" type="button" onclick="event.stopPropagation();document.getElementById('csv-file-input').click()">📁 Browse File</button>
+          <input type="file" id="csv-file-input" accept=".csv,text/csv" style="display:none;" onchange="csvFileSelected(event)" />
+        </div>
+        <div class="csv-paste-area">
+          <div class="csv-paste-label"><span></span>Or paste CSV / spreadsheet data directly</div>
+          <textarea class="csv-paste-input" id="csv-paste-input"
+            placeholder="Name,Category,Brand,CostPrice,SellingPrice,Stock,MinStock&#10;Rice 5kg,Grains,Tata,80,120,50,10"
+            spellcheck="false" oninput="csvPasteChanged()" aria-label="Paste CSV data here"></textarea>
+        </div>
+      </div>
+      <div id="csv-phase-map" style="display:none;">
+        <div class="csv-mapper">
+          <div class="csv-mapper-header"><span>🔗</span> Map your columns to product fields</div>
+          <div class="csv-mapper-grid" id="csv-mapper-grid"></div>
+        </div>
+      </div>
+      <div id="csv-phase-preview" style="display:none;">
+        <div class="csv-validation-bar" id="csv-validation-bar"></div>
+        <div class="csv-error-list" id="csv-error-list" style="display:none;"></div>
+        <div class="csv-preview-wrap">
+          <table class="csv-preview-table" id="csv-preview-table">
+            <thead id="csv-preview-thead"></thead>
+            <tbody id="csv-preview-tbody"></tbody>
+          </table>
+        </div>
+      </div>
+    `;
+  }
+
+  // Reset footer
+  const footer = document.getElementById('csv-modal-footer');
+  if (footer) {
+    footer.innerHTML = `
+      <div class="csv-footer-info" id="csv-footer-info">Upload a CSV file or paste data above to get started.</div>
+      <div class="csv-footer-actions">
+        <button class="csv-btn-secondary" onclick="csvReset()">Reset</button>
+        <button class="csv-btn-primary" id="csv-next-btn" onclick="csvNextStep()" disabled>Next →</button>
+      </div>
+    `;
+  }
+
+  csvSetPhase('upload');
+}
 // ============================================================================
 // INITIALIZATION & EVENT LISTENERS
 // ============================================================================

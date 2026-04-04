@@ -2101,3 +2101,736 @@ body.stock-only .workspace-nav-btn:not(#toggle-stock) {
     scroll-behavior: auto !important;
   }
 }
+/* ============================================================
+BULK CSV IMPORT MODAL
+============================================================ */
+/* ── Backdrop ───────────────────────────────────────────── */
+.csv-modal-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 5000;
+  background:
+    radial-gradient(circle at 20% 20%, rgba(29,158,117,0.14), transparent 40%),
+    radial-gradient(circle at 80% 80%, rgba(124,106,247,0.12), transparent 40%),
+    rgba(6, 8, 14, 0.82);
+  backdrop-filter: blur(12px);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 24px;
+  animation: csvBackdropIn 0.22s ease both;
+}
+
+.csv-modal-backdrop.closing {
+  animation: csvBackdropOut 0.22s ease forwards;
+}
+
+@keyframes csvBackdropIn  { from { opacity: 0; } to { opacity: 1; } }
+@keyframes csvBackdropOut { from { opacity: 1; } to { opacity: 0; } }
+
+/* ── Modal shell ────────────────────────────────────────── */
+.csv-modal {
+  width: min(860px, 100%);
+  max-height: min(92vh, 900px);
+  display: flex;
+  flex-direction: column;
+  background:
+    linear-gradient(160deg, rgba(255,255,255,0.055) 0%, rgba(255,255,255,0.018) 100%),
+    rgba(18, 20, 30, 0.96);
+  border: 1px solid rgba(255,255,255,0.10);
+  border-radius: 24px;
+  box-shadow:
+    0 0 0 1px rgba(29,158,117,0.12),
+    0 32px 80px rgba(0,0,0,0.55),
+    0 8px 24px rgba(0,0,0,0.3);
+  overflow: hidden;
+  animation: csvModalIn 0.28s cubic-bezier(0.34,1.56,0.64,1) both;
+}
+
+.csv-modal.closing {
+  animation: csvModalOut 0.22s ease forwards;
+}
+
+@keyframes csvModalIn {
+  from { opacity: 0; transform: translateY(24px) scale(0.97); }
+  to   { opacity: 1; transform: translateY(0)    scale(1); }
+}
+@keyframes csvModalOut {
+  from { opacity: 1; transform: translateY(0)    scale(1); }
+  to   { opacity: 0; transform: translateY(16px) scale(0.97); }
+}
+
+/* ── Modal header ───────────────────────────────────────── */
+.csv-modal-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 22px 28px 18px;
+  border-bottom: 1px solid rgba(255,255,255,0.07);
+  flex-shrink: 0;
+}
+
+.csv-modal-kicker {
+  font-size: 10px;
+  font-weight: 800;
+  letter-spacing: 0.2em;
+  text-transform: uppercase;
+  color: var(--green);
+  margin-bottom: 5px;
+}
+
+.csv-modal-title {
+  font-family: 'Space Grotesk', 'Plus Jakarta Sans', sans-serif;
+  font-size: 22px;
+  font-weight: 800;
+  letter-spacing: -0.03em;
+  color: var(--text);
+  line-height: 1.1;
+}
+
+.csv-modal-close {
+  width: 36px;
+  height: 36px;
+  border: 1px solid rgba(255,255,255,0.1);
+  border-radius: 10px;
+  background: rgba(255,255,255,0.06);
+  color: var(--muted);
+  font-size: 16px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  flex-shrink: 0;
+  transition: background 180ms ease, color 180ms ease, border-color 180ms ease;
+}
+
+.csv-modal-close:hover {
+  background: rgba(216,90,48,0.15);
+  border-color: rgba(216,90,48,0.4);
+  color: #D85A30;
+}
+
+/* ── Modal body (scrollable) ────────────────────────────── */
+.csv-modal-body {
+  flex: 1;
+  overflow-y: auto;
+  padding: 24px 28px;
+  display: flex;
+  flex-direction: column;
+  gap: 20px;
+  scrollbar-width: thin;
+  scrollbar-color: rgba(29,158,117,0.3) transparent;
+}
+
+.csv-modal-body::-webkit-scrollbar { width: 5px; }
+.csv-modal-body::-webkit-scrollbar-track { background: transparent; }
+.csv-modal-body::-webkit-scrollbar-thumb { background: rgba(29,158,117,0.3); border-radius: 99px; }
+
+/* ── Step indicator ─────────────────────────────────────── */
+.csv-steps {
+  display: flex;
+  align-items: center;
+  gap: 0;
+  margin-bottom: 4px;
+}
+
+.csv-step {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 12px;
+  font-weight: 700;
+  color: var(--muted);
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  transition: color 250ms ease;
+}
+
+.csv-step.active { color: var(--green); }
+.csv-step.done   { color: rgba(29,158,117,0.6); }
+
+.csv-step-dot {
+  width: 24px;
+  height: 24px;
+  border-radius: 50%;
+  border: 2px solid currentColor;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 11px;
+  font-weight: 800;
+  transition: background 250ms ease, border-color 250ms ease;
+  flex-shrink: 0;
+}
+
+.csv-step.active .csv-step-dot {
+  background: rgba(29,158,117,0.18);
+}
+
+.csv-step.done .csv-step-dot {
+  background: rgba(29,158,117,0.15);
+}
+
+.csv-step-line {
+  flex: 1;
+  height: 1px;
+  background: rgba(255,255,255,0.08);
+  margin: 0 10px;
+  max-width: 60px;
+}
+
+/* ── Drop zone ──────────────────────────────────────────── */
+.csv-drop-zone {
+  border: 2px dashed rgba(29,158,117,0.3);
+  border-radius: 18px;
+  padding: 40px 32px;
+  text-align: center;
+  cursor: pointer;
+  background: rgba(29,158,117,0.04);
+  transition:
+    border-color 200ms ease,
+    background   200ms ease,
+    transform    160ms ease;
+  position: relative;
+  overflow: hidden;
+}
+
+.csv-drop-zone::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background: radial-gradient(circle at 50% 0%, rgba(29,158,117,0.08), transparent 60%);
+  pointer-events: none;
+}
+
+.csv-drop-zone:hover,
+.csv-drop-zone.drag-over {
+  border-color: var(--green);
+  background: rgba(29,158,117,0.08);
+  transform: scale(1.005);
+}
+
+.csv-drop-zone.drag-over {
+  border-style: solid;
+  box-shadow: 0 0 0 4px rgba(29,158,117,0.14);
+}
+
+.csv-drop-icon {
+  font-size: 40px;
+  margin-bottom: 12px;
+  display: block;
+  filter: grayscale(0.3);
+}
+
+.csv-drop-title {
+  font-size: 16px;
+  font-weight: 700;
+  color: var(--text);
+  margin-bottom: 6px;
+}
+
+.csv-drop-sub {
+  font-size: 13px;
+  color: var(--muted);
+  line-height: 1.5;
+}
+
+.csv-drop-sub strong {
+  color: var(--green);
+  font-weight: 700;
+}
+
+.csv-file-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  margin-top: 16px;
+  padding: 9px 20px;
+  border-radius: 10px;
+  border: 1px solid rgba(29,158,117,0.4);
+  background: rgba(29,158,117,0.1);
+  color: var(--green);
+  font-size: 13px;
+  font-weight: 700;
+  cursor: pointer;
+  transition: background 180ms ease, border-color 180ms ease, transform 160ms ease;
+}
+
+.csv-file-btn:hover {
+  background: rgba(29,158,117,0.18);
+  border-color: var(--green);
+  transform: translateY(-1px);
+}
+
+/* ── Paste area ─────────────────────────────────────────── */
+.csv-paste-area {
+  background: rgba(255,255,255,0.03);
+  border: 1px solid rgba(255,255,255,0.08);
+  border-radius: 14px;
+  overflow: hidden;
+}
+
+.csv-paste-label {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 10px 16px;
+  background: rgba(255,255,255,0.03);
+  border-bottom: 1px solid rgba(255,255,255,0.06);
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--muted);
+}
+
+.csv-paste-label span {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--green);
+  display: inline-block;
+  box-shadow: 0 0 0 3px rgba(29,158,117,0.2);
+}
+
+.csv-paste-input {
+  width: 100%;
+  min-height: 100px;
+  padding: 14px 16px;
+  background: transparent;
+  border: none;
+  outline: none;
+  color: var(--text);
+  font-family: 'JetBrains Mono', 'Fira Code', 'Cascadia Code', monospace;
+  font-size: 12px;
+  line-height: 1.6;
+  resize: vertical;
+}
+
+.csv-paste-input::placeholder {
+  color: rgba(107,114,128,0.6);
+}
+
+/* ── Template download strip ────────────────────────────── */
+.csv-template-strip {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 12px 18px;
+  background: rgba(124,106,247,0.06);
+  border: 1px solid rgba(124,106,247,0.18);
+  border-radius: 12px;
+  font-size: 13px;
+  color: var(--muted);
+}
+
+.csv-template-strip strong { color: var(--text); font-weight: 600; }
+
+.csv-dl-btn {
+  margin-left: auto;
+  padding: 7px 16px;
+  border-radius: 8px;
+  border: 1px solid rgba(124,106,247,0.4);
+  background: rgba(124,106,247,0.1);
+  color: #a597ff;
+  font-size: 12px;
+  font-weight: 700;
+  cursor: pointer;
+  white-space: nowrap;
+  transition: background 180ms ease, transform 160ms ease;
+}
+
+.csv-dl-btn:hover {
+  background: rgba(124,106,247,0.18);
+  transform: translateY(-1px);
+}
+
+/* ── Column mapper ──────────────────────────────────────── */
+.csv-mapper {
+  background: rgba(255,255,255,0.03);
+  border: 1px solid rgba(255,255,255,0.08);
+  border-radius: 14px;
+  overflow: hidden;
+}
+
+.csv-mapper-header {
+  padding: 12px 18px;
+  background: rgba(255,255,255,0.03);
+  border-bottom: 1px solid rgba(255,255,255,0.06);
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--muted);
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.csv-mapper-grid {
+  display: grid;
+  grid-template-columns: 1fr 28px 1fr;
+  gap: 0;
+  padding: 16px;
+  gap: 8px 0;
+}
+
+.csv-mapper-row {
+  display: contents;
+}
+
+.csv-mapper-col-label {
+  padding: 8px 14px;
+  background: rgba(255,255,255,0.04);
+  border: 1px solid rgba(255,255,255,0.07);
+  border-radius: 8px 0 0 8px;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--text);
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-height: 38px;
+}
+
+.csv-mapper-arrow {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: rgba(255,255,255,0.04);
+  border-top: 1px solid rgba(255,255,255,0.07);
+  border-bottom: 1px solid rgba(255,255,255,0.07);
+  font-size: 12px;
+  color: var(--muted);
+}
+
+.csv-mapper-select {
+  padding: 0 10px;
+  background: rgba(255,255,255,0.06);
+  border: 1px solid rgba(255,255,255,0.07);
+  border-left: none;
+  border-radius: 0 8px 8px 0;
+  color: var(--text);
+  font-size: 12px;
+  font-weight: 600;
+  outline: none;
+  cursor: pointer;
+  min-height: 38px;
+  transition: border-color 180ms ease, background 180ms ease;
+  margin-bottom: 8px;
+}
+
+.csv-mapper-select:focus {
+  border-color: var(--green);
+  background: rgba(29,158,117,0.08);
+}
+
+.csv-mapper-select option { background: #1a1d27; }
+
+/* required field dot */
+.csv-required-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: #D85A30;
+  flex-shrink: 0;
+}
+
+.csv-optional-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: rgba(107,114,128,0.4);
+  flex-shrink: 0;
+}
+
+/* ── Preview table ──────────────────────────────────────── */
+.csv-preview-wrap {
+  border-radius: 14px;
+  border: 1px solid rgba(255,255,255,0.08);
+  overflow: auto;
+  max-height: 280px;
+  scrollbar-width: thin;
+  scrollbar-color: rgba(29,158,117,0.2) transparent;
+}
+
+.csv-preview-wrap::-webkit-scrollbar { width: 4px; height: 4px; }
+.csv-preview-wrap::-webkit-scrollbar-thumb { background: rgba(29,158,117,0.2); border-radius: 99px; }
+
+.csv-preview-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 12px;
+}
+
+.csv-preview-table th {
+  position: sticky;
+  top: 0;
+  z-index: 2;
+  padding: 10px 14px;
+  background: linear-gradient(180deg, rgba(16,22,32,0.98), rgba(12,16,24,0.95));
+  font-size: 10px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.1em;
+  color: color-mix(in srgb, var(--text) 70%, var(--green) 30%);
+  border-bottom: 1px solid rgba(29,158,117,0.2);
+  white-space: nowrap;
+}
+
+.csv-preview-table td {
+  padding: 9px 14px;
+  border-bottom: 1px solid rgba(255,255,255,0.04);
+  color: var(--text);
+  white-space: nowrap;
+  max-width: 180px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.csv-preview-table tbody tr:last-child td { border-bottom: none; }
+
+.csv-preview-table tbody tr:hover td {
+  background: rgba(255,255,255,0.03);
+}
+
+/* Row state */
+.csv-row-ok   td:first-child { border-left: 3px solid rgba(29,158,117,0.7);  }
+.csv-row-warn td:first-child { border-left: 3px solid rgba(234,179,8,0.7);   }
+.csv-row-err  td:first-child { border-left: 3px solid rgba(216,90,48,0.8);   }
+
+.csv-row-err { background: rgba(216,90,48,0.04); }
+.csv-row-warn { background: rgba(234,179,8,0.03); }
+
+/* ── Validation summary bar ─────────────────────────────── */
+.csv-validation-bar {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 12px 18px;
+  border-radius: 12px;
+  border: 1px solid rgba(255,255,255,0.08);
+  background: rgba(255,255,255,0.03);
+  flex-wrap: wrap;
+}
+
+.csv-val-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 12px;
+  border-radius: 999px;
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.csv-val-chip.ok   { background: rgba(29,158,117,0.14); color: #1D9E75; border: 1px solid rgba(29,158,117,0.25); }
+.csv-val-chip.warn { background: rgba(234,179,8,0.12);  color: #eab308; border: 1px solid rgba(234,179,8,0.22); }
+.csv-val-chip.err  { background: rgba(216,90,48,0.12);  color: #D85A30; border: 1px solid rgba(216,90,48,0.22); }
+
+.csv-val-detail {
+  font-size: 12px;
+  color: var(--muted);
+  margin-left: auto;
+}
+
+/* ── Error list ─────────────────────────────────────────── */
+.csv-error-list {
+  background: rgba(216,90,48,0.06);
+  border: 1px solid rgba(216,90,48,0.2);
+  border-radius: 12px;
+  padding: 14px 18px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  max-height: 140px;
+  overflow-y: auto;
+}
+
+.csv-error-item {
+  font-size: 12px;
+  color: #e8836a;
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  line-height: 1.4;
+}
+
+.csv-error-item::before {
+  content: '✕';
+  color: #D85A30;
+  font-weight: 800;
+  flex-shrink: 0;
+  margin-top: 1px;
+}
+
+/* ── Modal footer ───────────────────────────────────────── */
+.csv-modal-footer {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 16px 28px 20px;
+  border-top: 1px solid rgba(255,255,255,0.07);
+  flex-shrink: 0;
+  flex-wrap: wrap;
+}
+
+.csv-footer-info {
+  font-size: 12px;
+  color: var(--muted);
+  line-height: 1.4;
+}
+
+.csv-footer-info strong { color: var(--text); }
+
+.csv-footer-actions {
+  display: flex;
+  gap: 10px;
+  align-items: center;
+}
+
+.csv-btn-secondary {
+  padding: 9px 20px;
+  border-radius: 10px;
+  border: 1px solid rgba(255,255,255,0.1);
+  background: rgba(255,255,255,0.05);
+  color: var(--muted);
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: background 180ms ease, color 180ms ease;
+}
+
+.csv-btn-secondary:hover {
+  background: rgba(255,255,255,0.09);
+  color: var(--text);
+}
+
+.csv-btn-primary {
+  position: relative;
+  overflow: hidden;
+  padding: 9px 24px;
+  border-radius: 10px;
+  border: none;
+  background: linear-gradient(135deg, var(--green), var(--green-dark));
+  color: #fff;
+  font-size: 13px;
+  font-weight: 700;
+  cursor: pointer;
+  box-shadow: 0 4px 18px rgba(29,158,117,0.35);
+  transition: transform 160ms ease, box-shadow 200ms ease;
+}
+
+.csv-btn-primary:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 6px 24px rgba(29,158,117,0.45);
+}
+
+.csv-btn-primary:disabled {
+  background: rgba(255,255,255,0.08);
+  color: var(--muted);
+  box-shadow: none;
+  cursor: not-allowed;
+  transform: none;
+}
+
+.csv-btn-primary::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(120deg, transparent 0%, rgba(255,255,255,0.2) 50%, transparent 100%);
+  transform: translateX(-120%);
+  transition: transform 400ms ease;
+}
+
+.csv-btn-primary:not(:disabled):hover::after {
+  transform: translateX(120%);
+}
+
+/* ── Import success animation ───────────────────────────── */
+.csv-success-screen {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  padding: 48px 32px;
+  text-align: center;
+  gap: 16px;
+}
+
+.csv-success-icon {
+  width: 72px;
+  height: 72px;
+  border-radius: 50%;
+  background: rgba(29,158,117,0.14);
+  border: 2px solid rgba(29,158,117,0.4);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 32px;
+  animation: csvSuccessPop 0.5s cubic-bezier(0.34,1.56,0.64,1) both;
+  box-shadow: 0 0 0 0 rgba(29,158,117,0.3);
+  animation: csvSuccessPop 0.5s cubic-bezier(0.34,1.56,0.64,1) both, csvSuccessPulse 1.8s ease 0.5s infinite;
+}
+
+@keyframes csvSuccessPop {
+  from { transform: scale(0); opacity: 0; }
+  to   { transform: scale(1); opacity: 1; }
+}
+
+@keyframes csvSuccessPulse {
+  0%, 100% { box-shadow: 0 0 0 0   rgba(29,158,117,0.3); }
+  50%      { box-shadow: 0 0 0 12px rgba(29,158,117,0);   }
+}
+
+.csv-success-title {
+  font-family: 'Space Grotesk', sans-serif;
+  font-size: 24px;
+  font-weight: 800;
+  color: var(--text);
+  letter-spacing: -0.03em;
+}
+
+.csv-success-sub {
+  font-size: 14px;
+  color: var(--muted);
+  max-width: 30ch;
+  line-height: 1.5;
+}
+
+/* ── Responsive ─────────────────────────────────────────── */
+@media (max-width: 640px) {
+  .csv-modal-header,
+  .csv-modal-body,
+  .csv-modal-footer { padding-left: 18px; padding-right: 18px; }
+
+  .csv-modal-title { font-size: 18px; }
+  .csv-drop-zone   { padding: 28px 18px; }
+  .csv-step-line   { max-width: 30px; }
+}
+
+/* ── Import trigger button ──────────────────────────────── */
+.import-csv-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 0 16px;
+  height: 36px;
+  border-radius: 8px;
+  border: 1px solid rgba(29,158,117,0.4);
+  background: rgba(29,158,117,0.1);
+  color: var(--green);
+  font-size: 13px;
+  font-weight: 700;
+  cursor: pointer;
+  transition: background 180ms ease, border-color 180ms ease, transform 160ms ease;
+  white-space: nowrap;
+}
+
+.import-csv-btn:hover {
+  background: rgba(29,158,117,0.18);
+  border-color: var(--green);
+  transform: translateY(-1px);
+}
