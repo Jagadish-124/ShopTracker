@@ -61,13 +61,13 @@ async function fbDeleteAccount(password) {
   // Re-authenticate before destructive action
   const credential = firebase.auth.EmailAuthProvider.credential(user.email, password);
   await user.reauthenticateWithCredential(credential);
-  // Wipe Firestore documents
+  // Fire Firestore deletes without awaiting — with offline persistence enabled,
+  // awaiting these can hang indefinitely once the auth token is about to be
+  // revoked. They will complete in the background or be cleaned up server-side.
   const uid = user.uid;
-  await Promise.allSettled([
-    userDataDoc(uid).delete(),
-    userDoc(uid).delete()
-  ]);
-  // Delete the auth account
+  userDataDoc(uid).delete().catch(() => {});
+  userDoc(uid).delete().catch(() => {});
+  // Delete the auth account — this is the critical step
   await user.delete();
 }
 

@@ -479,12 +479,24 @@ async function confirmDeleteAccount() {
   if (btnLabel)   btnLabel.textContent = 'Deleting…';
   if (msgEl)      { msgEl.textContent = ''; msgEl.className = 'delete-acct-message'; }
 
-  try {
-    await fbDeleteAccount(pwd);
+  // ← Cancel Firestore listener BEFORE deleting — an active listener
+  // throws permission errors the moment the auth token is revoked by
+  // user.delete(), which can stall the entire operation.
+  if (firestoreUnsub) { firestoreUnsub(); firestoreUnsub = null; }
 
-    // Clean up local state
+  // Signal initAuth's onAuthStateChanged not to run its own cleanup
+  completeLoginInProgress = true;
+
+  try {
+    // Race against a 15s timeout so the UI never hangs forever
+    const deletePromise = fbDeleteAccount(pwd);
+    const timeoutPromise = new Promise((_, reject) =>
+      setTimeout(() => reject(new Error('timeout')), 15000)
+    );
+    await Promise.race([deletePromise, timeoutPromise]);
+
+    // Full local state reset
     completeLoginInProgress = false;
-    if (firestoreUnsub) { firestoreUnsub(); firestoreUnsub = null; }
     currentUser = null;
     products = []; transactions = []; restockHistory = [];
     movementHistory = []; reviewedProducts = []; dailyGoal = 0;
@@ -497,14 +509,24 @@ async function confirmDeleteAccount() {
     updateAuthUI(null);
     toast('Your account has been permanently deleted.', 'info');
   } catch(e) {
+    completeLoginInProgress = false;
+    // Re-subscribe so the app still works if deletion failed
+    if (currentUser && !firestoreUnsub) {
+      firestoreUnsub = fbSubscribeUserData(currentUser.uid, remoteData => {
+        applyUserData(remoteData); loadCurrency(); render();
+      });
+    }
+
     const friendlyMap = {
       'auth/wrong-password':        'Incorrect password. Please try again.',
       'auth/invalid-credential':    'Incorrect password. Please try again.',
       'auth/too-many-requests':     'Too many attempts. Please wait a moment.',
       'auth/network-request-failed':'Network error. Check your connection.',
       'auth/requires-recent-login': 'Session expired. Please log out and back in first.',
+      'timeout':                    'Request timed out. Check your connection and try again.',
     };
-    const msg = friendlyMap[e.code] || e.message || 'Could not delete account. Please try again.';
+    const key = e.message === 'timeout' ? 'timeout' : (e.code || '');
+    const msg = friendlyMap[key] || e.message || 'Could not delete account. Please try again.';
     if (msgEl) { msgEl.textContent = msg; msgEl.className = 'delete-acct-message error'; }
     if (confirmBtn) confirmBtn.disabled = false;
     if (cancelBtn)  cancelBtn.disabled  = false;
