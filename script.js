@@ -1,6 +1,3 @@
-// Firebase replaces localStorage auth & data storage.
-// All auth is via firebase.js (loaded before this script).
-
 let currency = 'INR';
 let baseCurrency = 'INR';
 let exchangeRates = JSON.parse(localStorage.getItem('exchangeRates')) || null;
