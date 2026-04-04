@@ -2834,3 +2834,7 @@ BULK CSV IMPORT MODAL
   border-color: var(--green);
   transform: translateY(-1px);
 }
+
+.toast-warning {
+  background: linear-gradient(135deg, rgba(234,179,8,0.96), rgba(180,130,0,0.92));
+}
