@@ -21,8 +21,14 @@ let dailyGoal = 0;
 let pendingUndoTimer = null;
 let notificationSettings = { enabled: false, lowStock: true, goal: true };
 let firestoreUnsub = null;
-let completeLoginInProgress = false; // ← NEW: guard against double-fire
-let _saveDebounceTimer = null;       // ← NEW: debounce Firestore writes
+let completeLoginInProgress = false; // ← guard against double-fire
+let _saveDebounceTimer = null;       // ← debounce Firestore writes
+
+// ── Offline detection ────────────────────────────────────────────────────────
+let _isOnline = navigator.onLine;
+let _saveStatus = 'idle';        // 'idle' | 'saving' | 'saved' | 'queued' | 'error'
+const PENDING_SAVE_KEY = 'pendingSave_shoptracker';  // localStorage key for queued payload
+let _savedPillTimer = null;      // auto-revert "Saved" pill back to idle
 
 const VIEW_MODE_KEY = 'activeViewMode';
 let activeViewMode = 'home';
@@ -109,29 +115,173 @@ function buildDataPayload() {
   };
 }
 
-// ← IMPROVED: debounced to prevent rapid Firestore writes
+// ← IMPROVED: debounced, error-aware, with offline queue
 function saveCurrentUserData(immediate = false) {
   if (!currentUser) return Promise.resolve();
+
+  // If offline — queue immediately without attempting Firestore
+  if (!_isOnline) {
+    _queuePendingSave(buildDataPayload());
+    updateSaveStatus('queued');
+    return Promise.resolve();
+  }
 
   if (immediate) {
     clearTimeout(_saveDebounceTimer);
     _saveDebounceTimer = null;
-    return fbSaveUserData(currentUser.uid, buildDataPayload()).catch(e => {
-      console.error('Firestore save error:', e);
-    });
+    updateSaveStatus('saving');
+    return fbSaveUserData(currentUser.uid, buildDataPayload())
+      .then(() => {
+        _clearPendingSave();
+        updateSaveStatus('saved');
+      })
+      .catch(e => {
+        console.error('Firestore save error:', e);
+        _queuePendingSave(buildDataPayload());
+        updateSaveStatus('queued');
+        if (!_isOnline) updateOfflineBanner(false);
+      });
   }
 
   return new Promise(resolve => {
     clearTimeout(_saveDebounceTimer);
+    updateSaveStatus('saving');
     _saveDebounceTimer = setTimeout(async () => {
+      if (!currentUser) { resolve(); return; }
       try {
         await fbSaveUserData(currentUser.uid, buildDataPayload());
+        _clearPendingSave();
+        updateSaveStatus('saved');
       } catch(e) {
         console.error('Firestore save error:', e);
+        _queuePendingSave(buildDataPayload());
+        updateSaveStatus('queued');
       }
       resolve();
     }, 800);
   });
+}
+
+// Persist the payload to localStorage so data survives tab closure while offline
+function _queuePendingSave(payload) {
+  try {
+    localStorage.setItem(PENDING_SAVE_KEY, JSON.stringify({ uid: currentUser?.uid, payload, ts: Date.now() }));
+  } catch(e) {
+    console.warn('Could not queue pending save:', e);
+  }
+}
+
+function _clearPendingSave() {
+  localStorage.removeItem(PENDING_SAVE_KEY);
+}
+
+// Flush locally-queued data to Firestore when we come back online
+async function flushPendingSave() {
+  const raw = localStorage.getItem(PENDING_SAVE_KEY);
+  if (!raw || !currentUser) return;
+
+  let record;
+  try { record = JSON.parse(raw); } catch { _clearPendingSave(); return; }
+  if (!record || record.uid !== currentUser.uid) { _clearPendingSave(); return; }
+
+  updateSaveStatus('saving');
+  try {
+    await fbSaveUserData(currentUser.uid, record.payload);
+    _clearPendingSave();
+    updateSaveStatus('saved');
+    toast('Data synced to cloud ✓', 'success');
+  } catch(e) {
+    console.error('Flush failed:', e);
+    updateSaveStatus('queued');
+  }
+}
+
+// ── Offline event handlers ────────────────────────────────────────────────────
+
+function handleOffline() {
+  _isOnline = false;
+  updateOfflineBanner(false);
+  updateSaveStatus('queued');
+}
+
+function handleOnline() {
+  _isOnline = true;
+  const banner = document.getElementById('offline-banner');
+  if (banner) {
+    // Briefly show "Back online — syncing" then hide
+    banner.classList.remove('offline-banner-visible');
+    banner.classList.remove('offline-banner-hidden');
+    banner.classList.add('offline-banner-online');
+    banner.classList.add('offline-banner-visible');
+    const textEl = banner.querySelector('.offline-banner-text');
+    const iconEl = banner.querySelector('.offline-banner-icon');
+    if (textEl) textEl.textContent = 'Back online — syncing your changes now…';
+    if (iconEl) iconEl.textContent = '☁️';
+    setTimeout(() => {
+      banner.classList.remove('offline-banner-visible');
+      banner.classList.add('offline-banner-hidden');
+      setTimeout(() => {
+        // reset for next offline event
+        banner.classList.remove('offline-banner-online');
+        if (textEl) textEl.textContent = 'You\'re offline — changes are queued and will sync automatically when reconnected.';
+        if (iconEl) iconEl.textContent = '📡';
+      }, 340);
+    }, 2800);
+  }
+  flushPendingSave();
+}
+
+function updateOfflineBanner(online) {
+  const banner = document.getElementById('offline-banner');
+  if (!banner) return;
+  if (online || _isOnline) {
+    banner.classList.remove('offline-banner-visible');
+    banner.classList.add('offline-banner-hidden');
+  } else {
+    banner.classList.remove('offline-banner-online', 'offline-banner-reconnecting');
+    const textEl = banner.querySelector('.offline-banner-text');
+    const iconEl = banner.querySelector('.offline-banner-icon');
+    if (textEl) textEl.textContent = 'You\'re offline — changes are queued and will sync automatically when reconnected.';
+    if (iconEl) iconEl.textContent = '📡';
+    banner.classList.remove('offline-banner-hidden');
+    banner.classList.add('offline-banner-visible');
+  }
+}
+
+function updateSaveStatus(status) {
+  _saveStatus = status;
+  const el = document.getElementById('save-status');
+  if (!el) return;
+
+  // Remove all state classes
+  el.classList.remove('save-status-idle','save-status-saving','save-status-saved','save-status-queued','save-status-error');
+
+  clearTimeout(_savedPillTimer);
+
+  const labels = {
+    idle:    '',
+    saving:  'Saving…',
+    saved:   'Saved ✓',
+    queued:  '📡 Queued',
+    error:   'Save failed',
+  };
+
+  el.textContent = labels[status] ?? '';
+  el.classList.add(`save-status-${status}`);
+
+  // Auto-hide after "Saved" so it doesn't linger forever
+  if (status === 'saved') {
+    _savedPillTimer = setTimeout(() => updateSaveStatus('idle'), 3000);
+  }
+}
+
+function initOfflineDetection() {
+  window.addEventListener('online',  handleOnline);
+  window.addEventListener('offline', handleOffline);
+  // Set initial banner state
+  updateOfflineBanner(_isOnline);
+  // Flush any queued save from a previous session
+  if (_isOnline) flushPendingSave();
 }
 
 function getUserStorageKey() {}
@@ -1919,6 +2069,7 @@ window.addEventListener('load', () => {
   syncProfileMenuTheme();
   applyViewMode();
   fetchExchangeRates();
+  initOfflineDetection(); // ← offline banner + save queue
   initAuth(); // loading screen hidden inside completeLogin / initAuth
 });
 
