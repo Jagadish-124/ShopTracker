@@ -40,121 +40,82 @@ const featurePanelDefaults = { analytics: false, stock: false, timeline: false, 
 let featurePanels = { ...featurePanelDefaults };
 
 // ============================================================================
-// AUTHENTICATION & USER MANAGEMENT
+// FIREBASE & DATA MANAGEMENT
 // ============================================================================
+const firebaseConfig = {
+  apiKey: "AIzaSyBoJB8XfdS2hIJdBFiIa1jD-ohSGKVewsA",
+  authDomain: "shop-tracker-7b6fd.firebaseapp.com",
+  projectId: "shop-tracker-7b6fd",
+  storageBucket: "shop-tracker-7b6fd.firebasestorage.app",
+  messagingSenderId: "250701408991",
+  appId: "1:250701408991:web:bf664d5879eb528da4976a",
+  measurementId: "G-DJ8165SBRH"
+};
 
-function bufferToHex(buffer) {
-  return Array.from(new Uint8Array(buffer))
-    .map(byte => byte.toString(16).padStart(2, '0'))
-    .join('');
-}
-
-function generateSalt() {
-  const bytes = crypto.getRandomValues(new Uint8Array(16));
-  return Array.from(bytes).map(b => b.toString(16).padStart(2, '0')).join('');
-}
-
-async function hashPassword(password, salt) {
-  const encoded = new TextEncoder().encode(`${salt}:${password}`);
-  const digest = await crypto.subtle.digest('SHA-256', encoded);
-  return bufferToHex(digest);
-}
-
-function getUsers() {
-  return JSON.parse(localStorage.getItem(USERS_KEY)) || [];
-}
-
-function saveUsers(users) {
-  localStorage.setItem(USERS_KEY, JSON.stringify(users));
-}
+firebase.initializeApp(firebaseConfig);
+const db = firebase.firestore();
 
 function normalizeEmail(email) {
   return email.trim().toLowerCase();
 }
 
-function getCurrentUserId() {
-  return sessionStorage.getItem(CURRENT_USER_KEY) || null;
-}
-
-function setCurrentUserId(userId) {
-  if (userId) {
-    sessionStorage.setItem(CURRENT_USER_KEY, userId);
-  } else {
-    sessionStorage.removeItem(CURRENT_USER_KEY);
-  }
-}
-
 function isAuthenticated() {
-  return sessionStorage.getItem('isAuthenticated') === 'true' && !!getCurrentUserId();
-}
-
-function getUserStorageKey(userId, key) {
-  return `user:${userId}:${key}`;
-}
-
-function getUserValue(userId, key, fallback) {
-  const raw = localStorage.getItem(getUserStorageKey(userId, key));
-  if (raw === null) return fallback;
-  try { return JSON.parse(raw); } catch { return raw; }
-}
-
-function setUserValue(userId, key, value) {
-  localStorage.setItem(getUserStorageKey(userId, key), JSON.stringify(value));
-}
-
-function removeUserValue(userId, key) {
-  localStorage.removeItem(getUserStorageKey(userId, key));
+  return !!currentUser;
 }
 
 function migrateLegacyDataToUser(userId) {
   const hasLegacyData = ['products', 'transactions', 'restockHistory', 'reviewed', 'currency', 'skuCounter', 'dailyGoal']
     .some(key => localStorage.getItem(key) !== null);
   if (!hasLegacyData) return;
-  if (localStorage.getItem(getUserStorageKey(userId, 'products')) !== null) return;
 
-  setUserValue(userId, 'products',       JSON.parse(localStorage.getItem('products'))       || []);
-  setUserValue(userId, 'transactions',   JSON.parse(localStorage.getItem('transactions'))   || []);
-  setUserValue(userId, 'restockHistory', JSON.parse(localStorage.getItem('restockHistory')) || []);
-  setUserValue(userId, 'reviewed',       JSON.parse(localStorage.getItem('reviewed'))       || []);
-  setUserValue(userId, 'currency',       localStorage.getItem('currency')                   || 'INR');
-  setUserValue(userId, 'skuCounter',     parseInt(localStorage.getItem('skuCounter'))       || 1);
-  setUserValue(userId, 'dailyGoal',      parseFloat(localStorage.getItem('dailyGoal'))      || 0);
-  setUserValue(userId, 'movementHistory', []);
-  setUserValue(userId, 'notificationSettings', { enabled: false, lowStock: true, goal: true });
+  products             = JSON.parse(localStorage.getItem('products'))       || [];
+  transactions         = JSON.parse(localStorage.getItem('transactions'))   || [];
+  restockHistory       = JSON.parse(localStorage.getItem('restockHistory')) || [];
+  reviewedProducts     = JSON.parse(localStorage.getItem('reviewed'))       || [];
+  currency             = localStorage.getItem('currency')                   || 'INR';
+  skuCounter           = parseInt(localStorage.getItem('skuCounter'))       || 1;
+  dailyGoal            = parseFloat(localStorage.getItem('dailyGoal'))      || 0;
+  movementHistory      = [];
+  notificationSettings = { enabled: false, lowStock: true, goal: true };
 }
 
-function loadCurrentUserData() {
+let isLoadingData = false;
+
+async function loadCurrentUserData() {
   if (!currentUser) return;
-  migrateLegacyDataToUser(currentUser.id);
+  isLoadingData = true;
+  try {
+    const docRef = db.collection('users').doc(currentUser.id);
+    const doc = await docRef.get();
 
-  products             = getUserValue(currentUser.id, 'products',             []);
-  transactions         = getUserValue(currentUser.id, 'transactions',         []);
-  restockHistory       = getUserValue(currentUser.id, 'restockHistory',       []);
-  movementHistory      = getUserValue(currentUser.id, 'movementHistory',      []);
-  reviewedProducts     = getUserValue(currentUser.id, 'reviewed',             []);
-  currency             = getUserValue(currentUser.id, 'currency',             'INR');
-  skuCounter           = parseInt(getUserValue(currentUser.id, 'skuCounter',  1)) || 1;
-  dailyGoal            = parseFloat(getUserValue(currentUser.id, 'dailyGoal', 0)) || 0;
-  notificationSettings = getUserValue(currentUser.id, 'notificationSettings', { enabled: false, lowStock: true, goal: true });
+    if (doc.exists) {
+      applyDataSnapshot(doc.data());
+    } else {
+      migrateLegacyDataToUser(currentUser.id);
+      await saveCurrentUserData();
+      render();
+    }
 
-  hydrateProductLinks();
-  nextProdId = Math.max(Date.now(), ...products.map(p => Number(p.id) || 0)) + 1;
+    hydrateProductLinks();
+    nextProdId = Math.max(Date.now(), ...products.map(p => Number(p.id) || 0)) + 1;
 
-  const currencySelect = document.getElementById('currency-select');
-  if (currencySelect) currencySelect.value = currency;
+    const currencySelect = document.getElementById('currency-select');
+    if (currencySelect) currencySelect.value = currency;
+  } catch (error) {
+    console.error("Error loading user data:", error);
+  } finally {
+    isLoadingData = false;
+  }
 }
 
-function saveCurrentUserData() {
-  if (!currentUser) return;
-  setUserValue(currentUser.id, 'products',             products);
-  setUserValue(currentUser.id, 'transactions',         transactions);
-  setUserValue(currentUser.id, 'restockHistory',       restockHistory);
-  setUserValue(currentUser.id, 'movementHistory',      movementHistory);
-  setUserValue(currentUser.id, 'reviewed',             reviewedProducts);
-  setUserValue(currentUser.id, 'currency',             currency);
-  setUserValue(currentUser.id, 'skuCounter',           skuCounter);
-  setUserValue(currentUser.id, 'dailyGoal',            dailyGoal);
-  setUserValue(currentUser.id, 'notificationSettings', notificationSettings);
+async function saveCurrentUserData() {
+  if (!currentUser || isLoadingData) return;
+  const snapshot = createDataSnapshot();
+  try {
+    await db.collection('users').doc(currentUser.id).set(snapshot);
+  } catch (error) {
+    console.error("Error saving user data:", error);
+  }
 }
 
 // ============================================================================
@@ -399,13 +360,12 @@ function switchAuthMode() {
 
 function completeLogin(user) {
   currentUser = user;
-  setCurrentUserId(user.id);
-  sessionStorage.setItem('isAuthenticated', 'true');
-  loadCurrentUserData();
-  loadCurrency();
-  render();
-  renderDashboard();
-  renderDateStats();
+  loadCurrentUserData().then(() => {
+    loadCurrency();
+    render();
+    renderDashboard();
+    renderDateStats();
+  });
   updateAuthUI();
 }
 
@@ -416,59 +376,103 @@ async function handleAuthAction() {
   const pwd         = password.value.trim();
 
   if (!userEmail) { setAuthMessage('Enter a valid email address.', 'error'); return; }
-  if (pwd.length < 4) { setAuthMessage('Use at least 4 characters for the password.', 'error'); return; }
+  if (pwd.length < 6) { setAuthMessage('Use at least 6 characters for the password.', 'error'); return; }
 
-  if (authMode === 'signup') {
-    if (!displayName) { setAuthMessage('Enter your name to create the account.', 'error'); return; }
-    if (pwd !== confirm.value.trim()) { setAuthMessage('Passwords do not match.', 'error'); return; }
+  const authElements = getAuthElements();
+  authElements.submit.disabled = true;
+  authElements.submit.textContent = 'Processing...';
 
-    const users = getUsers();
-    if (users.some(u => u.email === userEmail)) { setAuthMessage('That email is already registered. Log in instead.', 'error'); return; }
-
-    const salt         = generateSalt();
-    const passwordHash = await hashPassword(pwd, salt);
-    const user = { id: `user-${Date.now()}`, name: displayName, email: userEmail, salt, passwordHash, createdAt: new Date().toISOString() };
-    users.push(user);
-    saveUsers(users);
-    completeLogin(user);
-    toast(`Welcome, ${user.name}`);
-    return;
+  try {
+    if (authMode === 'signup') {
+      if (!displayName) { throw new Error('Enter your name to create the account.'); }
+      if (pwd !== confirm.value.trim()) { throw new Error('Passwords do not match.'); }
+      
+      const userCredential = await firebase.auth().createUserWithEmailAndPassword(userEmail, pwd);
+      await userCredential.user.updateProfile({ displayName: displayName });
+      await userCredential.user.sendEmailVerification();
+      setAuthMessage('Account created! A verification link has been sent to your email. Please verify before logging in.', 'info');
+      await firebase.auth().signOut();
+    } else {
+      const userCredential = await firebase.auth().signInWithEmailAndPassword(userEmail, pwd);
+      if (!userCredential.user.emailVerified) {
+        await firebase.auth().signOut();
+        setAuthMessage('Please verify your email address to log in. Check your inbox.', 'error');
+      } else {
+        setAuthMessage('');
+      }
+    }
+  } catch (error) {
+    setAuthMessage(error.message, 'error');
+  } finally {
+    authElements.submit.disabled = false;
+    authElements.submit.textContent = authMode === 'signup' ? 'Sign Up' : 'Log In';
   }
-
-  const users = getUsers();
-  const user  = users.find(u => u.email === userEmail);
-  if (!user) { setAuthMessage('No account found for that email.', 'error'); return; }
-
-  const passwordHash = await hashPassword(pwd, user.salt);
-  if (passwordHash !== user.passwordHash) { setAuthMessage('Incorrect password. Try again.', 'error'); return; }
-
-  completeLogin(user);
-  setAuthMessage('');
-  toast(`Welcome back, ${user.name}`);
 }
 
 function logout() {
   closeProfileMenu();
-  sessionStorage.removeItem('isAuthenticated');
-  setCurrentUserId(null);
-  currentUser      = null;
-  products         = [];
-  transactions     = [];
-  restockHistory   = [];
-  reviewedProducts = [];
-  dailyGoal        = 0;
-  currency         = 'INR';
-  skuCounter       = 1;
-  updateAuthMode(getUsers().length ? 'login' : 'signup');
-  updateAuthUI();
+  firebase.auth().signOut().then(() => {
+    currentUser      = null;
+    products         = [];
+    transactions     = [];
+    restockHistory   = [];
+    reviewedProducts = [];
+    dailyGoal        = 0;
+    currency         = 'INR';
+    skuCounter       = 1;
+    updateAuthMode('login');
+    updateAuthUI();
+  });
+}
+
+async function deleteAccount() {
+  if (!confirm("Are you sure you want to delete your account? All your data will be permanently lost.")) return;
+  
+  closeProfileMenu();
+  try {
+    const user = firebase.auth().currentUser;
+    if (user) {
+      await db.collection('users').doc(user.uid).delete();
+      await user.delete();
+      
+      currentUser      = null;
+      products         = [];
+      transactions     = [];
+      restockHistory   = [];
+      reviewedProducts = [];
+      dailyGoal        = 0;
+      currency         = 'INR';
+      skuCounter       = 1;
+      updateAuthMode('login');
+      updateAuthUI();
+      
+      toast("Account successfully deleted.", "info");
+    }
+  } catch (error) {
+    console.error("Error deleting account:", error);
+    if (error.code === 'auth/requires-recent-login') {
+      alert("Please log out and log back in to verify your identity before deleting your account.");
+    } else {
+      alert("Failed to delete account. " + error.message);
+    }
+  }
 }
 
 function initAuth() {
-  const userId = getCurrentUserId();
-  currentUser  = getUsers().find(u => u.id === userId) || null;
-  if (isAuthenticated() && currentUser) loadCurrentUserData();
-  updateAuthMode(getUsers().length ? 'login' : 'signup');
-  updateAuthUI();
+  firebase.auth().onAuthStateChanged((user) => {
+    if (user && user.emailVerified) {
+      currentUser = { id: user.uid, email: user.email, name: user.displayName || 'User' };
+      completeLogin(currentUser);
+      toast(`Welcome back, ${currentUser.name}`);
+    } else {
+      currentUser = null;
+      updateAuthMode('login');
+      updateAuthUI();
+      if (user && !user.emailVerified) {
+        firebase.auth().signOut();
+      }
+    }
+  });
 }
 
 // ============================================================================
