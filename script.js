@@ -1,18 +1,3 @@
-import { initializeApp } from "firebase/app";
-import { getAnalytics } from "firebase/analytics";
-const firebaseConfig = {
-  apiKey: "AIzaSyBoJB8XfdS2hIJdBFiIa1jD-ohSGKVewsA",
-  authDomain: "shop-tracker-7b6fd.firebaseapp.com",
-  projectId: "shop-tracker-7b6fd",
-  storageBucket: "shop-tracker-7b6fd.firebasestorage.app",
-  messagingSenderId: "250701408991",
-  appId: "1:250701408991:web:bf664d5879eb528da4976a",
-  measurementId: "G-DJ8165SBRH"
-};
-
-// Initialize Firebase
-const app = initializeApp(firebaseConfig);
-const analytics = getAnalytics(app);
 const USERS_KEY = 'shopUsers';
 const CURRENT_USER_KEY = 'currentUserId';
 
