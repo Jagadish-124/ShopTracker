@@ -386,6 +386,7 @@ async function handleAuthAction() {
 
     } else {
       const { user } = await fbSignIn(userEmail, pwd);
+      setAuthLoading(false);
       // onAuthStateChanged fires next — updateAuthUI handles screen switching
       setAuthMessage('');
     }
@@ -487,11 +488,11 @@ function initAuth() {
 
     currentUser = fbUser;
 
-    if (!fbUser.emailVerified) {
+    //if (!fbUser.emailVerified) {
       // Signed in but not verified — show verify screen
-      updateAuthUI(fbUser);
-      return;
-    }
+      //updateAuthUI(fbUser);
+      //return;
+    //}
 
     // Signed in and verified — load app
     await completeLogin(fbUser);
