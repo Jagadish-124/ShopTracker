@@ -1,5 +1,5 @@
-const USERS_KEY = 'shopUsers';
-const CURRENT_USER_KEY = 'currentUserId';
+// Firebase replaces localStorage auth & data storage.
+// All auth is via firebase.js (loaded before this script).
 
 let currency = 'INR';
 let baseCurrency = 'INR';
@@ -23,6 +23,7 @@ let currentUser = null;
 let dailyGoal = 0;
 let pendingUndoTimer = null;
 let notificationSettings = { enabled: false, lowStock: true, goal: true };
+let firestoreUnsub = null; // real-time listener unsubscribe fn
 
 const VIEW_MODE_KEY = 'activeViewMode';
 
@@ -40,122 +41,49 @@ const featurePanelDefaults = { analytics: false, stock: false, timeline: false, 
 let featurePanels = { ...featurePanelDefaults };
 
 // ============================================================================
-// AUTHENTICATION & USER MANAGEMENT
+// DATA LAYER — Firebase Firestore (replaces localStorage user data)
 // ============================================================================
 
-function bufferToHex(buffer) {
-  return Array.from(new Uint8Array(buffer))
-    .map(byte => byte.toString(16).padStart(2, '0'))
-    .join('');
-}
-
-function generateSalt() {
-  const bytes = crypto.getRandomValues(new Uint8Array(16));
-  return Array.from(bytes).map(b => b.toString(16).padStart(2, '0')).join('');
-}
-
-async function hashPassword(password, salt) {
-  const encoded = new TextEncoder().encode(`${salt}:${password}`);
-  const digest = await crypto.subtle.digest('SHA-256', encoded);
-  return bufferToHex(digest);
-}
-
-function getUsers() {
-  return JSON.parse(localStorage.getItem(USERS_KEY)) || [];
-}
-
-function saveUsers(users) {
-  localStorage.setItem(USERS_KEY, JSON.stringify(users));
-}
-
-function normalizeEmail(email) {
-  return email.trim().toLowerCase();
-}
-
-function getCurrentUserId() {
-  return sessionStorage.getItem(CURRENT_USER_KEY) || null;
-}
-
-function setCurrentUserId(userId) {
-  if (userId) {
-    sessionStorage.setItem(CURRENT_USER_KEY, userId);
-  } else {
-    sessionStorage.removeItem(CURRENT_USER_KEY);
-  }
-}
-
-function isAuthenticated() {
-  return sessionStorage.getItem('isAuthenticated') === 'true' && !!getCurrentUserId();
-}
-
-function getUserStorageKey(userId, key) {
-  return `user:${userId}:${key}`;
-}
-
-function getUserValue(userId, key, fallback) {
-  const raw = localStorage.getItem(getUserStorageKey(userId, key));
-  if (raw === null) return fallback;
-  try { return JSON.parse(raw); } catch { return raw; }
-}
-
-function setUserValue(userId, key, value) {
-  localStorage.setItem(getUserStorageKey(userId, key), JSON.stringify(value));
-}
-
-function removeUserValue(userId, key) {
-  localStorage.removeItem(getUserStorageKey(userId, key));
-}
-
-function migrateLegacyDataToUser(userId) {
-  const hasLegacyData = ['products', 'transactions', 'restockHistory', 'reviewed', 'currency', 'skuCounter', 'dailyGoal']
-    .some(key => localStorage.getItem(key) !== null);
-  if (!hasLegacyData) return;
-  if (localStorage.getItem(getUserStorageKey(userId, 'products')) !== null) return;
-
-  setUserValue(userId, 'products',       JSON.parse(localStorage.getItem('products'))       || []);
-  setUserValue(userId, 'transactions',   JSON.parse(localStorage.getItem('transactions'))   || []);
-  setUserValue(userId, 'restockHistory', JSON.parse(localStorage.getItem('restockHistory')) || []);
-  setUserValue(userId, 'reviewed',       JSON.parse(localStorage.getItem('reviewed'))       || []);
-  setUserValue(userId, 'currency',       localStorage.getItem('currency')                   || 'INR');
-  setUserValue(userId, 'skuCounter',     parseInt(localStorage.getItem('skuCounter'))       || 1);
-  setUserValue(userId, 'dailyGoal',      parseFloat(localStorage.getItem('dailyGoal'))      || 0);
-  setUserValue(userId, 'movementHistory', []);
-  setUserValue(userId, 'notificationSettings', { enabled: false, lowStock: true, goal: true });
-}
-
-function loadCurrentUserData() {
-  if (!currentUser) return;
-  migrateLegacyDataToUser(currentUser.id);
-
-  products             = getUserValue(currentUser.id, 'products',             []);
-  transactions         = getUserValue(currentUser.id, 'transactions',         []);
-  restockHistory       = getUserValue(currentUser.id, 'restockHistory',       []);
-  movementHistory      = getUserValue(currentUser.id, 'movementHistory',      []);
-  reviewedProducts     = getUserValue(currentUser.id, 'reviewed',             []);
-  currency             = getUserValue(currentUser.id, 'currency',             'INR');
-  skuCounter           = parseInt(getUserValue(currentUser.id, 'skuCounter',  1)) || 1;
-  dailyGoal            = parseFloat(getUserValue(currentUser.id, 'dailyGoal', 0)) || 0;
-  notificationSettings = getUserValue(currentUser.id, 'notificationSettings', { enabled: false, lowStock: true, goal: true });
+function applyUserData(data) {
+  if (!data) return;
+  products             = data.products             || [];
+  transactions         = data.transactions         || [];
+  restockHistory       = data.restockHistory       || [];
+  movementHistory      = data.movementHistory      || [];
+  reviewedProducts     = data.reviewedProducts     || [];
+  currency             = data.currency             || 'INR';
+  skuCounter           = parseInt(data.skuCounter) || 1;
+  dailyGoal            = parseFloat(data.dailyGoal)|| 0;
+  notificationSettings = data.notificationSettings || { enabled: false, lowStock: true, goal: true };
 
   hydrateProductLinks();
   nextProdId = Math.max(Date.now(), ...products.map(p => Number(p.id) || 0)) + 1;
 
-  const currencySelect = document.getElementById('currency-select');
-  if (currencySelect) currencySelect.value = currency;
+  const sel = document.getElementById('currency-select');
+  if (sel) sel.value = currency;
 }
 
-function saveCurrentUserData() {
-  if (!currentUser) return;
-  setUserValue(currentUser.id, 'products',             products);
-  setUserValue(currentUser.id, 'transactions',         transactions);
-  setUserValue(currentUser.id, 'restockHistory',       restockHistory);
-  setUserValue(currentUser.id, 'movementHistory',      movementHistory);
-  setUserValue(currentUser.id, 'reviewed',             reviewedProducts);
-  setUserValue(currentUser.id, 'currency',             currency);
-  setUserValue(currentUser.id, 'skuCounter',           skuCounter);
-  setUserValue(currentUser.id, 'dailyGoal',            dailyGoal);
-  setUserValue(currentUser.id, 'notificationSettings', notificationSettings);
+function buildDataPayload() {
+  return {
+    products, transactions, restockHistory, movementHistory,
+    reviewedProducts, currency, skuCounter, dailyGoal, notificationSettings
+  };
 }
+
+async function saveCurrentUserData() {
+  if (!currentUser) return;
+  try {
+    await fbSaveUserData(currentUser.uid, buildDataPayload());
+  } catch(e) {
+    console.error('Firestore save error:', e);
+  }
+}
+
+// Legacy stubs so any existing callers don't throw
+function getUserStorageKey() {}
+function getUserValue()      {}
+function setUserValue()      {}
+function removeUserValue()   {}
 
 // ============================================================================
 // VIEW MANAGEMENT  (rewritten for exclusive per-view display)
@@ -312,12 +240,13 @@ function hasChartSupport() { return typeof window.Chart === 'function'; }
 function hasPdfSupport()   { return !!window.jspdf?.jsPDF; }
 
 // ============================================================================
-// AUTHENTICATION UI
+// AUTHENTICATION UI  (wired to Firebase)
 // ============================================================================
 
 function getAuthElements() {
   return {
     overlay:         document.getElementById('auth-overlay'),
+    verifyScreen:    document.getElementById('verify-screen'),
     shell:           document.getElementById('app-shell'),
     title:           document.getElementById('auth-title'),
     subtitle:        document.getElementById('auth-subtitle'),
@@ -329,6 +258,7 @@ function getAuthElements() {
     confirmGroup:    document.getElementById('auth-confirm-group'),
     submit:          document.getElementById('auth-submit-btn'),
     switchBtn:       document.getElementById('auth-switch-btn'),
+    forgotBtn:       document.getElementById('auth-forgot-btn'),
     message:         document.getElementById('auth-message'),
     profileMenu:     document.getElementById('header-profile-menu'),
     profileChip:     document.getElementById('header-profile-chip'),
@@ -346,36 +276,60 @@ function setAuthMessage(message, type = 'info') {
   el.className = `auth-message ${type}`;
 }
 
+function setAuthLoading(loading) {
+  const { submit } = getAuthElements();
+  if (!submit) return;
+  submit.disabled     = loading;
+  submit.textContent  = loading
+    ? (authMode === 'signup' ? 'Creating account…' : 'Signing in…')
+    : (authMode === 'signup' ? 'Sign Up' : 'Log In');
+}
+
 function updateAuthMode(mode) {
   authMode = mode;
-  const { title, subtitle, nameGroup, confirmGroup, submit, switchBtn, name, email, password, confirm, message } = getAuthElements();
+  const { title, subtitle, nameGroup, confirmGroup, submit, switchBtn, forgotBtn,
+          name, email, password, confirm, message } = getAuthElements();
   if (!title) return;
 
   const signupMode = mode === 'signup';
   title.textContent    = signupMode ? 'Create your account' : 'Log in to Shop Tracker';
   subtitle.textContent = signupMode
-    ? 'Create an account to keep products, sales, and goals separate for each user.'
-    : 'Sign in to open your own inventory and sales dashboard.';
+    ? 'Your data syncs across all devices automatically.'
+    : 'Sign in to open your inventory — works on any device.';
 
   nameGroup.style.display    = signupMode ? 'block' : 'none';
   confirmGroup.style.display = signupMode ? 'block' : 'none';
   submit.textContent         = signupMode ? 'Sign Up' : 'Log In';
+  submit.disabled            = false;
   switchBtn.style.display    = 'inline-flex';
   switchBtn.textContent      = signupMode ? 'Already have an account?' : 'Need to create an account?';
+  if (forgotBtn) forgotBtn.style.display = signupMode ? 'none' : 'inline-flex';
 
-  name.value = ''; email.value = ''; password.value = ''; confirm.value = ''; message.textContent = '';
-  (signupMode ? name : email).focus();
+  if (name)    name.value    = '';
+  if (email)   email.value   = '';
+  if (password) password.value = '';
+  if (confirm) confirm.value = '';
+  if (message) message.textContent = '';
+  (signupMode ? name : email)?.focus();
 }
 
-function updateAuthUI() {
-  const { overlay, shell, profileMenu, profileChip, profileDropdown, userBadge } = getAuthElements();
-  const authed = isAuthenticated();
+// Show/hide screens based on auth state + email verification
+function updateAuthUI(fbUser) {
+  const { overlay, verifyScreen, shell, profileMenu, profileChip, profileDropdown, userBadge } = getAuthElements();
 
-  if (overlay)         overlay.style.display = authed ? 'none' : 'flex';
-  if (shell)           shell.classList.toggle('app-shell-hidden', !authed);
-  if (profileMenu)     profileMenu.style.display = authed && currentUser ? 'inline-flex' : 'none';
-  if (userBadge)       userBadge.textContent = currentUser ? currentUser.name || currentUser.email : '';
-  if (profileChip)     profileChip.setAttribute('aria-expanded', 'false');
+  const authed   = !!fbUser;
+  const verified = fbUser?.emailVerified ?? false;
+
+  // Auth overlay — show if not logged in
+  if (overlay)      overlay.style.display      = authed ? 'none' : 'flex';
+  // Verify screen — show if logged in but NOT verified
+  if (verifyScreen) verifyScreen.style.display  = (authed && !verified) ? 'flex' : 'none';
+  // App shell — show only if logged in AND verified
+  if (shell)        shell.classList.toggle('app-shell-hidden', !(authed && verified));
+
+  if (profileMenu) profileMenu.style.display = (authed && verified) ? 'inline-flex' : 'none';
+  if (userBadge)   userBadge.textContent     = fbUser ? (fbUser.displayName || fbUser.email) : '';
+  if (profileChip) profileChip.setAttribute('aria-expanded', 'false');
   if (profileDropdown) profileDropdown.classList.remove('open');
 }
 
@@ -397,79 +351,154 @@ function switchAuthMode() {
   updateAuthMode(authMode === 'signup' ? 'login' : 'signup');
 }
 
-function completeLogin(user) {
-  currentUser = user;
-  setCurrentUserId(user.id);
-  sessionStorage.setItem('isAuthenticated', 'true');
-  loadCurrentUserData();
-  loadCurrency();
-  render();
-  renderDashboard();
-  renderDateStats();
-  updateAuthUI();
+async function handleForgotPassword() {
+  const { email } = getAuthElements();
+  const addr = email?.value?.trim();
+  if (!addr) { setAuthMessage('Enter your email address first.', 'error'); return; }
+  try {
+    await fbResetPassword(addr);
+    setAuthMessage('Password reset email sent — check your inbox.', 'info');
+  } catch(e) {
+    setAuthMessage(friendlyFirebaseError(e), 'error');
+  }
 }
 
 async function handleAuthAction() {
   const { name, email, password, confirm } = getAuthElements();
-  const displayName = name.value.trim();
-  const userEmail   = normalizeEmail(email.value);
-  const pwd         = password.value.trim();
+  const displayName = name?.value?.trim()     || '';
+  const userEmail   = email?.value?.trim()    || '';
+  const pwd         = password?.value?.trim() || '';
 
   if (!userEmail) { setAuthMessage('Enter a valid email address.', 'error'); return; }
-  if (pwd.length < 4) { setAuthMessage('Use at least 4 characters for the password.', 'error'); return; }
+  if (pwd.length < 6) { setAuthMessage('Password must be at least 6 characters.', 'error'); return; }
 
-  if (authMode === 'signup') {
-    if (!displayName) { setAuthMessage('Enter your name to create the account.', 'error'); return; }
-    if (pwd !== confirm.value.trim()) { setAuthMessage('Passwords do not match.', 'error'); return; }
-
-    const users = getUsers();
-    if (users.some(u => u.email === userEmail)) { setAuthMessage('That email is already registered. Log in instead.', 'error'); return; }
-
-    const salt         = generateSalt();
-    const passwordHash = await hashPassword(pwd, salt);
-    const user = { id: `user-${Date.now()}`, name: displayName, email: userEmail, salt, passwordHash, createdAt: new Date().toISOString() };
-    users.push(user);
-    saveUsers(users);
-    completeLogin(user);
-    toast(`Welcome, ${user.name}`);
-    return;
-  }
-
-  const users = getUsers();
-  const user  = users.find(u => u.email === userEmail);
-  if (!user) { setAuthMessage('No account found for that email.', 'error'); return; }
-
-  const passwordHash = await hashPassword(pwd, user.salt);
-  if (passwordHash !== user.passwordHash) { setAuthMessage('Incorrect password. Try again.', 'error'); return; }
-
-  completeLogin(user);
+  setAuthLoading(true);
   setAuthMessage('');
-  toast(`Welcome back, ${user.name}`);
+
+  try {
+    if (authMode === 'signup') {
+      if (!displayName) { setAuthMessage('Enter your name to create the account.', 'error'); setAuthLoading(false); return; }
+      if (pwd !== confirm?.value?.trim()) { setAuthMessage('Passwords do not match.', 'error'); setAuthLoading(false); return; }
+
+      await fbSignUp(userEmail, pwd, displayName);
+      // Firebase onAuthStateChanged will fire — show verify screen automatically
+      setAuthMessage('');
+
+    } else {
+      const { user } = await fbSignIn(userEmail, pwd);
+      // onAuthStateChanged fires next — updateAuthUI handles screen switching
+      setAuthMessage('');
+    }
+  } catch(e) {
+    setAuthMessage(friendlyFirebaseError(e), 'error');
+    setAuthLoading(false);
+  }
 }
 
-function logout() {
+function friendlyFirebaseError(e) {
+  const map = {
+    'auth/email-already-in-use':    'That email is already registered. Log in instead.',
+    'auth/invalid-email':           'Enter a valid email address.',
+    'auth/weak-password':           'Password must be at least 6 characters.',
+    'auth/user-not-found':          'No account found for that email.',
+    'auth/wrong-password':          'Incorrect password. Try again.',
+    'auth/invalid-credential':      'Incorrect email or password.',
+    'auth/too-many-requests':       'Too many attempts. Please wait a moment.',
+    'auth/network-request-failed':  'Network error. Check your connection.',
+    'auth/user-disabled':           'This account has been disabled.',
+  };
+  return map[e.code] || e.message || 'Something went wrong. Please try again.';
+}
+
+async function logout() {
   closeProfileMenu();
-  sessionStorage.removeItem('isAuthenticated');
-  setCurrentUserId(null);
-  currentUser      = null;
-  products         = [];
-  transactions     = [];
-  restockHistory   = [];
-  reviewedProducts = [];
-  dailyGoal        = 0;
-  currency         = 'INR';
-  skuCounter       = 1;
-  updateAuthMode(getUsers().length ? 'login' : 'signup');
-  updateAuthUI();
+  // Stop real-time listener
+  if (firestoreUnsub) { firestoreUnsub(); firestoreUnsub = null; }
+  // Reset in-memory data
+  currentUser = null; products = []; transactions = []; restockHistory = [];
+  movementHistory = []; reviewedProducts = []; dailyGoal = 0;
+  currency = 'INR'; skuCounter = 1;
+  notificationSettings = { enabled: false, lowStock: true, goal: true };
+  await fbSignOut();
+  updateAuthMode('login');
+  updateAuthUI(null);
 }
 
-function initAuth() {
-  const userId = getCurrentUserId();
-  currentUser  = getUsers().find(u => u.id === userId) || null;
-  if (isAuthenticated() && currentUser) loadCurrentUserData();
-  updateAuthMode(getUsers().length ? 'login' : 'signup');
-  updateAuthUI();
+// Called after email verified — load data and show app
+async function completeLogin(fbUser) {
+  currentUser = fbUser;
+
+  // Load data from Firestore
+  const data = await fbLoadUserData(fbUser.uid);
+  applyUserData(data);
+  loadCurrency();
+
+  // Subscribe to real-time updates (other devices, tabs)
+  if (firestoreUnsub) firestoreUnsub();
+  firestoreUnsub = fbSubscribeUserData(fbUser.uid, remoteData => {
+    applyUserData(remoteData);
+    loadCurrency();
+    render();
+  });
+
+  updateAuthUI(fbUser);
+  loadViewMode();
+  applyViewMode();
+  render();
+  if (activeViewMode === 'insights') renderDashboard();
+  notifyImportantEvents();
+  toast(`Welcome${fbUser.displayName ? ', ' + fbUser.displayName : ''}! 👋`);
 }
+
+// ── Verification screen actions ───────────────────────────────────────────────
+
+async function resendVerificationEmail() {
+  try {
+    await fbResendVerification();
+    toast('Verification email sent — check your inbox.');
+  } catch(e) {
+    toast('Could not send email. Try again in a moment.', 'error');
+  }
+}
+
+async function checkEmailVerified() {
+  try {
+    const user = await fbReloadUser();
+    if (user?.emailVerified) {
+      toast('Email verified! Loading your dashboard…');
+      await completeLogin(user);
+    } else {
+      toast('Not verified yet — check your inbox.', 'info');
+    }
+  } catch(e) {
+    toast('Could not check verification status.', 'error');
+  }
+}
+
+// ── Firebase auth state listener (fires on page load, login, logout) ─────────
+function initAuth() {
+  fbOnAuthStateChanged(async fbUser => {
+    if (!fbUser) {
+      // Signed out
+      updateAuthMode('login');
+      updateAuthUI(null);
+      return;
+    }
+
+    currentUser = fbUser;
+
+    if (!fbUser.emailVerified) {
+      // Signed in but not verified — show verify screen
+      updateAuthUI(fbUser);
+      return;
+    }
+
+    // Signed in and verified — load app
+    await completeLogin(fbUser);
+  });
+}
+
+
 
 // ============================================================================
 // CURRENCY & EXCHANGE RATES
@@ -637,9 +666,9 @@ function notifyImportantEvents(force = false) {
   const expiringItems = products.filter(p => { const d = getDaysToExpiry(p.expiryDate); return d !== null && d >= 0 && d <= 30; });
   const todayProfit   = transactions.filter(t => t.date === today).reduce((s, t) => s + t.profit, 0);
 
-  const lowKey  = `notify:${currentUser.id}:lowStock:${today}`;
-  const expKey  = `notify:${currentUser.id}:expiry:${today}`;
-  const goalKey = `notify:${currentUser.id}:goal:${today}`;
+  const lowKey  = `notify:${currentUser.uid}:lowStock:${today}`;
+  const expKey  = `notify:${currentUser.uid}:expiry:${today}`;
+  const goalKey = `notify:${currentUser.uid}:goal:${today}`;
 
   if ((force || !localStorage.getItem(lowKey)) && lowStockItems.length && notificationSettings.lowStock) {
     const names = lowStockItems.slice(0, 3).map(p => p.name).join(', ');
@@ -1298,10 +1327,8 @@ function clearDateFilter() {
   dateFrom = ''; dateTo = '';
   const f1 = document.getElementById('date-from');
   const t1 = document.getElementById('date-to');
-  const f2 = document.getElementById('date-from-reports');
-  const t2 = document.getElementById('date-to-reports');
-  if (f1) f1.value = ''; if (t1) t1.value = '';
-  if (f2) f2.value = ''; if (t2) t2.value = '';
+  if (f1) f1.value = '';
+  if (t1) t1.value = '';
   renderTransactions();
   renderDateStats();
 }
@@ -1315,83 +1342,82 @@ function getFilteredTransactions() {
 }
 
 function renderDateStats() {
-  const filtered     = getFilteredTransactions();
-  const rev          = filtered.reduce((s,t)=>s+t.total,0);
-  const profit       = filtered.reduce((s,t)=>s+t.profit,0);
-  const cost         = filtered.reduce((s,t)=>s+t.totalCost,0);
-  const items        = filtered.reduce((s,t)=>s+t.qty,0);
+  const filtered = getFilteredTransactions();
+  const rev      = filtered.reduce((s,t)=>s+t.total,0);
+  const profit   = filtered.reduce((s,t)=>s+t.profit,0);
+  const cost     = filtered.reduce((s,t)=>s+t.totalCost,0);
+  const items    = filtered.reduce((s,t)=>s+t.qty,0);
 
-  // There are two possible date-stats containers (home view & reports view)
-  const statsEls    = [document.getElementById('date-stats'), document.querySelector('#feature-reports #date-stats')].filter(Boolean);
-  const insightsEls = [document.getElementById('date-range-insights'), document.querySelector('#feature-reports #date-range-insights')].filter(Boolean);
+  const statsEl    = document.getElementById('date-stats');
+  const insightsEl = document.getElementById('date-range-insights');
+  const hasFilter  = !!(dateFrom || dateTo);
 
-  const hasFilter = !!(dateFrom || dateTo);
-
-  statsEls.forEach(el => {
-    el.style.display = hasFilter ? 'flex' : 'none';
+  if (statsEl) {
+    statsEl.style.display = hasFilter ? 'flex' : 'none';
     if (hasFilter) {
-      el.innerHTML = `
+      statsEl.innerHTML = `
         <div class="date-stat-card"><div class="date-stat-label">Revenue</div><div class="date-stat-value" style="color:#1D9E75;">${fmt(rev)}</div></div>
         <div class="date-stat-card"><div class="date-stat-label">Cost</div><div class="date-stat-value" style="color:#D85A30;">${fmt(cost)}</div></div>
         <div class="date-stat-card"><div class="date-stat-label">Profit</div><div class="date-stat-value" style="color:#7c6af7;">${fmt(profit)}</div></div>
         <div class="date-stat-card"><div class="date-stat-label">Items Sold</div><div class="date-stat-value">${items}</div></div>
       `;
     }
+  }
+
+  if (!insightsEl) return;
+
+  if (!hasFilter) { insightsEl.style.display = 'none'; return; }
+
+  if (!filtered.length) {
+    insightsEl.style.display = 'grid';
+    insightsEl.innerHTML = `
+      <div class="range-insight-card empty-state">
+        <div class="range-insight-title">Date Range Insights</div>
+        <div class="range-insight-value">No transactions</div>
+        <div class="range-insight-subtext">Try widening the selected dates.</div>
+      </div>`;
+    return;
+  }
+
+  const byProduct = {}, byCategory = {};
+  filtered.forEach(t => {
+    const name     = getRecordProductName(t);
+    const category = getRecordCategory(t);
+    if (!byProduct[name])      byProduct[name]      = { revenue:0, cost:0, profit:0, items:0 };
+    if (!byCategory[category]) byCategory[category] = { revenue:0, profit:0, items:0 };
+    byProduct[name].revenue += t.total; byProduct[name].cost += t.totalCost; byProduct[name].profit += t.profit; byProduct[name].items += t.qty;
+    byCategory[category].revenue += t.total; byCategory[category].profit += t.profit; byCategory[category].items += t.qty;
   });
 
-  insightsEls.forEach(el => {
-    if (!hasFilter) { el.style.display = 'none'; return; }
-    if (!filtered.length) {
-      el.style.display = 'grid';
-      el.innerHTML = `
-        <div class="range-insight-card empty-state">
-          <div class="range-insight-title">Date Range Insights</div>
-          <div class="range-insight-value">No transactions</div>
-          <div class="range-insight-subtext">Try widening the selected dates.</div>
-        </div>`;
-      return;
-    }
+  const best      = Object.entries(byProduct).sort((a,b)=>b[1].profit-a[1].profit)[0];
+  const weakest   = Object.entries(byProduct).sort((a,b)=>a[1].profit-b[1].profit)[0];
+  const topCat    = Object.entries(byCategory).sort((a,b)=>b[1].profit-a[1].profit)[0];
+  const avgProfit = filtered.length ? profit / filtered.length : 0;
+  const marginPct = rev > 0 ? ((profit / rev) * 100).toFixed(1) : '0.0';
 
-    const byProduct = {}, byCategory = {};
-    filtered.forEach(t => {
-      const name     = getRecordProductName(t);
-      const category = getRecordCategory(t);
-      if (!byProduct[name])     byProduct[name]     = { revenue:0, cost:0, profit:0, items:0 };
-      if (!byCategory[category]) byCategory[category] = { revenue:0, profit:0, items:0 };
-      byProduct[name].revenue += t.total; byProduct[name].cost += t.totalCost; byProduct[name].profit += t.profit; byProduct[name].items += t.qty;
-      byCategory[category].revenue += t.total; byCategory[category].profit += t.profit; byCategory[category].items += t.qty;
-    });
-
-    const best      = Object.entries(byProduct).sort((a,b)=>b[1].profit-a[1].profit)[0];
-    const weakest   = Object.entries(byProduct).sort((a,b)=>a[1].profit-b[1].profit)[0];
-    const topCat    = Object.entries(byCategory).sort((a,b)=>b[1].profit-a[1].profit)[0];
-    const avgProfit = filtered.length ? profit / filtered.length : 0;
-    const marginPct = rev > 0 ? ((profit / rev) * 100).toFixed(1) : '0.0';
-
-    el.style.display = 'grid';
-    el.innerHTML = `
-      <div class="range-insight-card accent-green">
-        <div class="range-insight-title">Top Category</div>
-        <div class="range-insight-value">${topCat ? topCat[0] : '—'}</div>
-        <div class="range-insight-subtext">${topCat ? `${fmt(topCat[1].profit)} profit across ${topCat[1].items} items` : 'No data'}</div>
-      </div>
-      <div class="range-insight-card accent-violet">
-        <div class="range-insight-title">Best Product</div>
-        <div class="range-insight-value">${best ? best[0] : '—'}</div>
-        <div class="range-insight-subtext">${best ? `${fmt(best[1].profit)} profit from ${best[1].items} units` : 'No data'}</div>
-      </div>
-      <div class="range-insight-card accent-amber">
-        <div class="range-insight-title">Lowest Performer</div>
-        <div class="range-insight-value">${weakest ? weakest[0] : '—'}</div>
-        <div class="range-insight-subtext">${weakest ? `${fmt(weakest[1].profit)} profit on ${fmt(weakest[1].revenue)} revenue` : 'No data'}</div>
-      </div>
-      <div class="range-insight-card accent-slate">
-        <div class="range-insight-title">Range Quality</div>
-        <div class="range-insight-value">${marginPct}% margin</div>
-        <div class="range-insight-subtext">${fmt(avgProfit)} avg profit per transaction</div>
-      </div>
-    `;
-  });
+  insightsEl.style.display = 'grid';
+  insightsEl.innerHTML = `
+    <div class="range-insight-card accent-green">
+      <div class="range-insight-title">Top Category</div>
+      <div class="range-insight-value">${topCat ? topCat[0] : '—'}</div>
+      <div class="range-insight-subtext">${topCat ? `${fmt(topCat[1].profit)} profit across ${topCat[1].items} items` : 'No data'}</div>
+    </div>
+    <div class="range-insight-card accent-violet">
+      <div class="range-insight-title">Best Product</div>
+      <div class="range-insight-value">${best ? best[0] : '—'}</div>
+      <div class="range-insight-subtext">${best ? `${fmt(best[1].profit)} profit from ${best[1].items} units` : 'No data'}</div>
+    </div>
+    <div class="range-insight-card accent-amber">
+      <div class="range-insight-title">Lowest Performer</div>
+      <div class="range-insight-value">${weakest ? weakest[0] : '—'}</div>
+      <div class="range-insight-subtext">${weakest ? `${fmt(weakest[1].profit)} profit on ${fmt(weakest[1].revenue)} revenue` : 'No data'}</div>
+    </div>
+    <div class="range-insight-card accent-slate">
+      <div class="range-insight-title">Range Quality</div>
+      <div class="range-insight-value">${marginPct}% margin</div>
+      <div class="range-insight-subtext">${fmt(avgProfit)} avg profit per transaction</div>
+    </div>
+  `;
 }
 
 // ============================================================================
@@ -1585,7 +1611,7 @@ function exportPDF() {
 
 function backupData() {
   closeProfileMenu();
-  const data = { user: currentUser ? { id:currentUser.id, name:currentUser.name, email:currentUser.email } : null, products, transactions, restockHistory, movementHistory, reviewedProducts, dailyGoal, currency, exportedAt: new Date().toISOString() };
+  const data = { user: currentUser ? { id:currentUser.uid, name:currentUser.displayName, email:currentUser.email } : null, products, transactions, restockHistory, movementHistory, reviewedProducts, dailyGoal, currency, exportedAt: new Date().toISOString() };
   const blob = new Blob([JSON.stringify(data,null,2)],{type:'application/json'});
   const url  = URL.createObjectURL(blob);
   const a    = document.createElement('a'); a.href=url; a.download=`shop-backup-${new Date().toISOString().split('T')[0]}.json`; a.click();
@@ -1712,22 +1738,57 @@ function showConfirm(message, onYes) {
 
 function clearAllData() {
   closeProfileMenu();
-  showConfirm('Delete all data for this account? This cannot be undone.', () => {
+  showConfirm('Delete all data for this account? This cannot be undone.', async () => {
     if (!currentUser) return;
     const snapshot = createDataSnapshot();
-    ['products','transactions','restockHistory','movementHistory','reviewed','currency','skuCounter','dailyGoal','notificationSettings']
-      .forEach(key => removeUserValue(currentUser.id, key));
     products=[];transactions=[];restockHistory=[];movementHistory=[];reviewedProducts=[];
     dailyGoal=0;currency='INR';skuCounter=1;
     notificationSettings={enabled:false,lowStock:true,goal:true};
+    await saveCurrentUserData();
     loadCurrency();
     render();
     queueUndo('All account data cleared.', snapshot, 'error');
   });
 }
+
+// ============================================================================
+// INITIALIZATION & EVENT LISTENERS
+// ============================================================================
+
+window.addEventListener('load', () => {
+  loadFeaturePanels();
+  loadViewMode();
+  loadTheme();
+  updateThemeButton();
+  syncProfileMenuTheme();
+  applyViewMode();
+  fetchExchangeRates();
+  // Firebase auth listener drives everything from here
+  initAuth();
+});
+
+document.addEventListener('keydown', event => {
+  if (event.key === 'Escape') { switchViewMode('home'); closeProfileMenu(); }
+  if (event.key !== 'Enter') return;
+  const overlay = document.getElementById('auth-overlay');
+  if (!overlay || overlay.style.display === 'none') return;
+  handleAuthAction();
+});
+
+document.addEventListener('click', event => {
+  const { profileMenu } = getAuthElements();
+  if (!profileMenu) return;
+  if (!profileMenu.contains(event.target)) closeProfileMenu();
+});
+
+if ('serviceWorker' in navigator) {
+  navigator.serviceWorker.register('./sw.js')
+    .then(() => console.log('Service worker registered'))
+    .catch(err => console.log('SW error:', err));
+}
+
 // ============================================================================
 // BULK CSV IMPORT MODULE
-// Paste this entire block into script.js (before the closing event listeners)
 // ============================================================================
 
 const CSV_FIELDS = [
@@ -1745,15 +1806,8 @@ const CSV_FIELDS = [
 ];
 
 let csvState = {
-  phase:       'upload',   // 'upload' | 'map' | 'preview'
-  rawRows:     [],         // array of string[] (all rows including header)
-  headers:     [],         // detected header row
-  mapping:     {},         // { fieldKey: colIndex | -1 }
-  parsed:      [],         // array of { data, errors, warnings }
-  fileLoaded:  false,
+  phase: 'upload', rawRows: [], headers: [], mapping: {}, parsed: [], fileLoaded: false,
 };
-
-// ── Modal open / close ────────────────────────────────────────────────────────
 
 function openCsvImport() {
   csvReset();
@@ -1762,7 +1816,6 @@ function openCsvImport() {
   backdrop.classList.remove('closing');
   document.getElementById('csv-modal').classList.remove('closing');
   document.body.style.overflow = 'hidden';
-  // Focus trap seed
   setTimeout(() => document.getElementById('csv-paste-input')?.focus(), 120);
 }
 
@@ -1779,75 +1832,45 @@ function closeCsvImport() {
   }, 230);
 }
 
-// Close on backdrop click
 document.addEventListener('click', e => {
   if (e.target && e.target.id === 'csv-import-backdrop') closeCsvImport();
 });
 
-// Close on Escape — appended to existing keydown listener
-document.addEventListener('keydown', e => {
-  if (e.key === 'Escape' && document.getElementById('csv-import-backdrop')?.style.display !== 'none') {
-    closeCsvImport();
-  }
-});
-
-// ── Template download ─────────────────────────────────────────────────────────
-
 function downloadCsvTemplate() {
-  const header = CSV_FIELDS.map(f => f.label).join(',');
+  const header  = CSV_FIELDS.map(f => f.label).join(',');
   const example = [
     'Rice 5kg,Grains,Tata,5kg,SKU-001,80,120,50,10,LOT-001,2025-12-31',
     'Wheat Flour 1kg,Grains,Aashirvaad,1kg,,40,65,30,5,,',
     'Sunflower Oil 1L,Oils,Fortune,1L,,95,145,20,5,LOT-A,2026-06-30',
   ].join('\n');
-  const csv  = header + '\n' + example;
-  const blob = new Blob([csv], { type: 'text/csv' });
+  const blob = new Blob([header + '\n' + example], { type: 'text/csv' });
   const url  = URL.createObjectURL(blob);
-  const a    = Object.assign(document.createElement('a'), { href: url, download: 'shop-tracker-import-template.csv' });
-  a.click();
+  Object.assign(document.createElement('a'), { href: url, download: 'shop-tracker-template.csv' }).click();
   URL.revokeObjectURL(url);
 }
 
-// ── Drag & drop ───────────────────────────────────────────────────────────────
-
-function csvDragOver(e) {
-  e.preventDefault();
-  document.getElementById('csv-drop-zone').classList.add('drag-over');
-}
-
-function csvDragLeave(e) {
-  document.getElementById('csv-drop-zone').classList.remove('drag-over');
-}
-
+function csvDragOver(e)  { e.preventDefault(); document.getElementById('csv-drop-zone').classList.add('drag-over'); }
+function csvDragLeave(e) { document.getElementById('csv-drop-zone').classList.remove('drag-over'); }
 function csvDrop(e) {
   e.preventDefault();
   document.getElementById('csv-drop-zone').classList.remove('drag-over');
   const file = e.dataTransfer.files[0];
   if (file) csvReadFile(file);
 }
-
-function csvFileSelected(e) {
-  const file = e.target.files[0];
-  if (file) csvReadFile(file);
-  e.target.value = '';
-}
+function csvFileSelected(e) { const f = e.target.files[0]; if (f) csvReadFile(f); e.target.value = ''; }
 
 function csvReadFile(file) {
   if (!file.name.toLowerCase().endsWith('.csv') && file.type !== 'text/csv') {
-    toast('Please upload a .csv file', 'error');
-    return;
+    toast('Please upload a .csv file', 'error'); return;
   }
   const reader = new FileReader();
   reader.onload = ev => csvLoadRawText(ev.target.result);
   reader.readAsText(file);
 }
 
-// ── Paste input ───────────────────────────────────────────────────────────────
-
 function csvPasteChanged() {
   const val = document.getElementById('csv-paste-input').value.trim();
   if (val.length > 10) {
-    // Debounce slightly so it doesn't re-parse on every keystroke
     clearTimeout(csvState._pasteTimer);
     csvState._pasteTimer = setTimeout(() => csvLoadRawText(val), 380);
   } else {
@@ -1857,31 +1880,22 @@ function csvPasteChanged() {
   }
 }
 
-// ── CSV parser ────────────────────────────────────────────────────────────────
-
 function csvParseText(text) {
-  // Handles quoted fields, commas inside quotes, CRLF and LF
   const lines = text.replace(/\r\n/g, '\n').replace(/\r/g, '\n').split('\n');
   const rows  = [];
-
   for (const line of lines) {
     if (!line.trim()) continue;
-    const row    = [];
-    let field    = '';
-    let inQuotes = false;
-
+    const row = []; let field = ''; let inQuotes = false;
     for (let i = 0; i < line.length; i++) {
-      const ch   = line[i];
-      const next = line[i + 1];
-
+      const ch = line[i], next = line[i + 1];
       if (inQuotes) {
         if (ch === '"' && next === '"') { field += '"'; i++; }
-        else if (ch === '"')            { inQuotes = false; }
-        else                            { field += ch; }
+        else if (ch === '"') inQuotes = false;
+        else field += ch;
       } else {
-        if (ch === '"') { inQuotes = true; }
+        if (ch === '"') inQuotes = true;
         else if (ch === ',') { row.push(field.trim()); field = ''; }
-        else { field += ch; }
+        else field += ch;
       }
     }
     row.push(field.trim());
@@ -1892,267 +1906,170 @@ function csvParseText(text) {
 
 function csvLoadRawText(text) {
   const rows = csvParseText(text);
-  if (rows.length < 2) {
-    toast('CSV needs at least a header row and one data row', 'error');
-    return;
-  }
-
-  csvState.rawRows    = rows;
-  csvState.headers    = rows[0];
-  csvState.fileLoaded = true;
-
-  // Auto-detect mapping using fuzzy header matching
+  if (rows.length < 2) { toast('CSV needs at least a header row and one data row', 'error'); return; }
+  csvState.rawRows = rows; csvState.headers = rows[0]; csvState.fileLoaded = true;
   csvState.mapping = autoDetectMapping(csvState.headers);
-
   const dataCount = rows.length - 1;
   document.getElementById('csv-footer-info').innerHTML =
     `<strong>${dataCount} row${dataCount !== 1 ? 's' : ''}</strong> detected — review column mapping below.`;
-
-  csvSetPhase('map');
-  csvBuildMapper();
-  csvSetNextEnabled(true);
+  csvSetPhase('map'); csvBuildMapper(); csvSetNextEnabled(true);
 }
-
-// ── Auto column detection ────────────────────────────────────────────────────
 
 function autoDetectMapping(headers) {
   const aliases = {
-    name:        ['name', 'product', 'product name', 'item', 'item name', 'title', 'description'],
-    category:    ['category', 'cat', 'type', 'department', 'group'],
-    brand:       ['brand', 'manufacturer', 'make', 'company', 'mfr'],
-    variant:     ['variant', 'size', 'weight', 'unit', 'pack size', 'variation'],
-    sku:         ['sku', 'item id', 'item code', 'code', 'barcode', 'upc', 'id'],
-    cost:        ['cost', 'cost price', 'purchase price', 'buy price', 'cp', 'buying price', 'cost per unit'],
-    price:       ['price', 'selling price', 'sell price', 'mrp', 'sale price', 'retail price', 'sp'],
-    stock:       ['stock', 'qty', 'quantity', 'units', 'inventory', 'on hand', 'available'],
-    minStock:    ['min stock', 'minimum stock', 'reorder point', 'reorder level', 'min qty', 'alert'],
-    batchNumber: ['batch', 'batch number', 'lot', 'lot number', 'batch no'],
-    expiryDate:  ['expiry', 'expiry date', 'exp date', 'expiration', 'best before', 'use by', 'exp'],
+    name:        ['name','product','product name','item','item name','title'],
+    category:    ['category','cat','type','department','group'],
+    brand:       ['brand','manufacturer','make','company','mfr'],
+    variant:     ['variant','size','weight','unit','pack size','variation'],
+    sku:         ['sku','item id','item code','code','barcode','upc','id'],
+    cost:        ['cost','cost price','purchase price','buy price','cp','buying price'],
+    price:       ['price','selling price','sell price','mrp','sale price','retail price','sp'],
+    stock:       ['stock','qty','quantity','units','inventory','on hand','available'],
+    minStock:    ['min stock','minimum stock','reorder point','reorder level','min qty','alert'],
+    batchNumber: ['batch','batch number','lot','lot number','batch no'],
+    expiryDate:  ['expiry','expiry date','exp date','expiration','best before','use by','exp'],
   };
-
   const mapping = {};
   CSV_FIELDS.forEach(f => { mapping[f.key] = -1; });
-
   headers.forEach((h, idx) => {
-    const normalized = h.toLowerCase().trim();
-    for (const [key, aliasList] of Object.entries(aliases)) {
-      if (mapping[key] !== -1) continue; // already mapped
-      if (aliasList.some(a => normalized.includes(a) || a.includes(normalized))) {
-        mapping[key] = idx;
-        break;
-      }
+    const n = h.toLowerCase().trim();
+    for (const [key, list] of Object.entries(aliases)) {
+      if (mapping[key] !== -1) continue;
+      if (list.some(a => n.includes(a) || a.includes(n))) { mapping[key] = idx; break; }
     }
   });
-
   return mapping;
 }
-
-// ── Column mapper UI ──────────────────────────────────────────────────────────
 
 function csvBuildMapper() {
   const grid = document.getElementById('csv-mapper-grid');
   grid.innerHTML = '';
-
-  const headerOptions = csvState.headers.map((h, i) =>
-    `<option value="${i}">${h || `Column ${i + 1}`}</option>`
-  ).join('');
-  const skipOption = `<option value="-1">— Skip this field —</option>`;
-
+  const headerOptions = csvState.headers.map((h,i) => `<option value="${i}">${h || `Column ${i+1}`}</option>`).join('');
   CSV_FIELDS.forEach(field => {
-    const selectedIdx = csvState.mapping[field.key] ?? -1;
-
     grid.insertAdjacentHTML('beforeend', `
       <div class="csv-mapper-col-label">
         <span class="${field.required ? 'csv-required-dot' : 'csv-optional-dot'}"></span>
         ${field.label}${field.required ? ' *' : ''}
       </div>
       <div class="csv-mapper-arrow">→</div>
-      <select
-        class="csv-mapper-select"
-        data-field="${field.key}"
+      <select class="csv-mapper-select" data-field="${field.key}"
         onchange="csvUpdateMapping('${field.key}', parseInt(this.value))"
-        aria-label="Map ${field.label}"
-      >
-        ${skipOption}${headerOptions}
+        aria-label="Map ${field.label}">
+        <option value="-1">— Skip —</option>${headerOptions}
       </select>
     `);
-
-    // Set selected
     const sel = grid.querySelector(`select[data-field="${field.key}"]`);
-    if (sel) sel.value = selectedIdx;
+    if (sel) sel.value = csvState.mapping[field.key] ?? -1;
   });
 }
 
-function csvUpdateMapping(fieldKey, colIdx) {
-  csvState.mapping[fieldKey] = colIdx;
-  // Re-run preview if already in preview phase
+function csvUpdateMapping(key, idx) {
+  csvState.mapping[key] = idx;
   if (csvState.phase === 'preview') csvBuildPreview();
 }
-
-// ── Validation & preview ─────────────────────────────────────────────────────
 
 const REQUIRED_FIELDS = CSV_FIELDS.filter(f => f.required).map(f => f.key);
 
 function csvValidateMapping() {
-  const missing = REQUIRED_FIELDS.filter(k => (csvState.mapping[k] ?? -1) === -1);
-  return missing;
+  return REQUIRED_FIELDS.filter(k => (csvState.mapping[k] ?? -1) === -1);
 }
 
 function csvParseAndValidateRows() {
-  const dataRows = csvState.rawRows.slice(1); // skip header
-  const results  = [];
-
-  dataRows.forEach((row, rowIdx) => {
-    const errors   = [];
-    const warnings = [];
-    const data     = {};
-
+  const results = [];
+  csvState.rawRows.slice(1).forEach((row, rowIdx) => {
+    const errors = [], warnings = [], data = {};
     CSV_FIELDS.forEach(field => {
       const colIdx = csvState.mapping[field.key] ?? -1;
-      const raw    = colIdx >= 0 ? (row[colIdx] || '').trim() : '';
-
+      const raw = colIdx >= 0 ? (row[colIdx] || '').trim() : '';
       if (field.key === 'name') {
-        data.name = raw;
-        if (!raw) errors.push(`Row ${rowIdx + 2}: Product name is required`);
+        data.name = raw; if (!raw) errors.push(`Row ${rowIdx+2}: Product name is required`);
       } else if (field.key === 'cost') {
         data.cost = parseFloat(raw);
-        if (!raw)                  errors.push(`Row ${rowIdx + 2}: Cost price is required`);
-        else if (isNaN(data.cost) || data.cost <= 0) errors.push(`Row ${rowIdx + 2}: Cost price must be a positive number (got "${raw}")`);
+        if (!raw) errors.push(`Row ${rowIdx+2}: Cost price is required`);
+        else if (isNaN(data.cost) || data.cost <= 0) errors.push(`Row ${rowIdx+2}: Cost must be a positive number`);
       } else if (field.key === 'price') {
         data.price = parseFloat(raw);
-        if (!raw)                   errors.push(`Row ${rowIdx + 2}: Selling price is required`);
-        else if (isNaN(data.price) || data.price <= 0) errors.push(`Row ${rowIdx + 2}: Selling price must be a positive number (got "${raw}")`);
+        if (!raw) errors.push(`Row ${rowIdx+2}: Selling price is required`);
+        else if (isNaN(data.price) || data.price <= 0) errors.push(`Row ${rowIdx+2}: Price must be a positive number`);
       } else if (field.key === 'stock') {
         data.stock = parseInt(raw);
-        if (!raw)                   errors.push(`Row ${rowIdx + 2}: Stock quantity is required`);
-        else if (isNaN(data.stock) || data.stock < 0) errors.push(`Row ${rowIdx + 2}: Stock must be a non-negative integer (got "${raw}")`);
+        if (!raw) errors.push(`Row ${rowIdx+2}: Stock quantity is required`);
+        else if (isNaN(data.stock) || data.stock < 0) errors.push(`Row ${rowIdx+2}: Stock must be non-negative`);
       } else if (field.key === 'minStock') {
         data.minStock = raw ? parseInt(raw) : 5;
-        if (raw && isNaN(data.minStock)) warnings.push(`Row ${rowIdx + 2}: Min stock ignored (not a number), defaulting to 5`);
+        if (raw && isNaN(data.minStock)) warnings.push(`Row ${rowIdx+2}: Min stock ignored, defaulting to 5`);
       } else if (field.key === 'expiryDate') {
         data.expiryDate = raw || '';
-        if (raw && isNaN(new Date(raw).getTime())) warnings.push(`Row ${rowIdx + 2}: Expiry date "${raw}" could not be parsed, will be skipped`);
-      } else {
-        data[field.key] = raw || '';
-      }
+        if (raw && isNaN(new Date(raw).getTime())) warnings.push(`Row ${rowIdx+2}: Expiry date "${raw}" could not be parsed`);
+      } else { data[field.key] = raw || ''; }
     });
-
-    // Cross-field validation
-    if (!isNaN(data.cost) && !isNaN(data.price) && data.cost > 0 && data.price > 0 && data.cost >= data.price) {
-      errors.push(`Row ${rowIdx + 2}: Cost price (${data.cost}) must be less than selling price (${data.price})`);
-    }
-
-    // Defaults
-    data.category    = data.category    || 'Uncategorized';
-    data.brand       = data.brand       || '—';
-    data.variant     = data.variant     || '—';
-    data.batchNumber = data.batchNumber || '';
+    if (!isNaN(data.cost) && !isNaN(data.price) && data.cost > 0 && data.price > 0 && data.cost >= data.price)
+      errors.push(`Row ${rowIdx+2}: Cost must be less than selling price`);
+    data.category = data.category || 'Uncategorized'; data.brand = data.brand || '—';
+    data.variant = data.variant || '—'; data.batchNumber = data.batchNumber || '';
     if (!data.minStock || isNaN(data.minStock)) data.minStock = 5;
-
     results.push({ data, errors, warnings, rowIdx });
   });
-
   csvState.parsed = results;
   return results;
 }
 
 function csvBuildPreview() {
-  const results = csvParseAndValidateRows();
-
-  const okCount   = results.filter(r => r.errors.length === 0).length;
-  const warnCount = results.filter(r => r.warnings.length > 0).length;
-  const errCount  = results.filter(r => r.errors.length  > 0).length;
+  const results   = csvParseAndValidateRows();
+  const okCount   = results.filter(r => !r.errors.length).length;
+  const warnCount = results.filter(r => r.warnings.length).length;
+  const errCount  = results.filter(r => r.errors.length).length;
   const allErrors = results.flatMap(r => r.errors);
 
-  // Validation bar
   document.getElementById('csv-validation-bar').innerHTML = `
     <span class="csv-val-chip ok">✓ ${okCount} valid</span>
     ${warnCount ? `<span class="csv-val-chip warn">⚠ ${warnCount} warnings</span>` : ''}
-    ${errCount  ? `<span class="csv-val-chip err">✕ ${errCount} errors</span>`   : ''}
-    <span class="csv-val-detail">${results.length} total row${results.length !== 1 ? 's' : ''}</span>
+    ${errCount  ? `<span class="csv-val-chip err">✕ ${errCount} errors</span>` : ''}
+    <span class="csv-val-detail">${results.length} total rows</span>
   `;
-
-  // Error list
   const errorList = document.getElementById('csv-error-list');
-  if (allErrors.length) {
-    errorList.style.display = 'flex';
-    errorList.innerHTML = allErrors.map(e => `<div class="csv-error-item">${e}</div>`).join('');
-  } else {
-    errorList.style.display = 'none';
-  }
+  errorList.style.display = allErrors.length ? 'flex' : 'none';
+  errorList.innerHTML = allErrors.map(e => `<div class="csv-error-item">${e}</div>`).join('');
 
-  // Preview columns (only mapped fields)
   const mappedFields = CSV_FIELDS.filter(f => (csvState.mapping[f.key] ?? -1) >= 0);
-
-  const thead = document.getElementById('csv-preview-thead');
-  thead.innerHTML = `<tr>${mappedFields.map(f => `<th>${f.label}</th>`).join('')}<th>Status</th></tr>`;
-
-  const tbody = document.getElementById('csv-preview-tbody');
-  tbody.innerHTML = results.map(r => {
-    const cls  = r.errors.length ? 'csv-row-err' : r.warnings.length ? 'csv-row-warn' : 'csv-row-ok';
+  document.getElementById('csv-preview-thead').innerHTML =
+    `<tr>${mappedFields.map(f=>`<th>${f.label}</th>`).join('')}<th>Status</th></tr>`;
+  document.getElementById('csv-preview-tbody').innerHTML = results.map(r => {
+    const cls = r.errors.length ? 'csv-row-err' : r.warnings.length ? 'csv-row-warn' : 'csv-row-ok';
     const status = r.errors.length
       ? `<span style="color:#D85A30;font-size:11px;font-weight:700;">✕ Error</span>`
       : r.warnings.length
       ? `<span style="color:#eab308;font-size:11px;font-weight:700;">⚠ Warning</span>`
       : `<span style="color:#1D9E75;font-size:11px;font-weight:700;">✓ OK</span>`;
-
-    const cells = mappedFields.map(f => {
-      const val = r.data[f.key] ?? '';
-      return `<td title="${String(val)}">${String(val)}</td>`;
-    }).join('');
-
-    return `<tr class="${cls}">${cells}<td>${status}</td></tr>`;
+    return `<tr class="${cls}">${mappedFields.map(f=>`<td>${String(r.data[f.key]??'')}</td>`).join('')}<td>${status}</td></tr>`;
   }).join('');
 
-  // Footer
-  const importable = okCount;
-  document.getElementById('csv-footer-info').innerHTML =
-    `<strong>${importable}</strong> product${importable !== 1 ? 's' : ''} ready to import` +
-    (errCount ? ` — <span style="color:#D85A30;">${errCount} row${errCount !== 1 ? 's' : ''} with errors will be skipped</span>` : '');
-
   const nextBtn = document.getElementById('csv-next-btn');
-  nextBtn.textContent = `Import ${importable} Product${importable !== 1 ? 's' : ''} →`;
-  nextBtn.disabled    = importable === 0;
+  nextBtn.textContent = `Import ${okCount} Product${okCount !== 1 ? 's' : ''} →`;
+  nextBtn.disabled    = okCount === 0;
+  document.getElementById('csv-footer-info').innerHTML =
+    `<strong>${okCount}</strong> product${okCount!==1?'s':''} ready to import` +
+    (errCount ? ` — <span style="color:#D85A30;">${errCount} row${errCount!==1?'s':''} will be skipped</span>` : '');
 }
-
-// ── Phase controller ──────────────────────────────────────────────────────────
 
 function csvSetPhase(phase) {
   csvState.phase = phase;
-
   document.getElementById('csv-phase-upload').style.display  = phase === 'upload'  ? 'flex' : 'none';
   document.getElementById('csv-phase-map').style.display     = phase === 'map'     ? 'block' : 'none';
   document.getElementById('csv-phase-preview').style.display = phase === 'preview' ? 'flex' : 'none';
-
-  // Upload phase needs column flex-direction
-  const uploadPhase = document.getElementById('csv-phase-upload');
-  if (uploadPhase) uploadPhase.style.flexDirection = 'column';
-  if (uploadPhase) uploadPhase.style.gap = '16px';
-
-  // Ensure preview phase also stacks
-  const previewPhase = document.getElementById('csv-phase-preview');
-  if (previewPhase) { previewPhase.style.flexDirection = 'column'; previewPhase.style.gap = '14px'; }
-
-  // Step indicators
-  const steps = ['upload','map','preview','done'];
-  const phaseIdx = { upload: 0, map: 1, preview: 2, done: 3 }[phase] ?? 0;
-
-  ['csv-step-1','csv-step-2','csv-step-3','csv-step-4'].forEach((id, i) => {
-    const el = document.getElementById(id);
-    if (!el) return;
+  const uploadEl = document.getElementById('csv-phase-upload');
+  if (uploadEl) { uploadEl.style.flexDirection = 'column'; uploadEl.style.gap = '16px'; }
+  const previewEl = document.getElementById('csv-phase-preview');
+  if (previewEl) { previewEl.style.flexDirection = 'column'; previewEl.style.gap = '14px'; }
+  const phaseIdx = { upload:0, map:1, preview:2, done:3 }[phase] ?? 0;
+  ['csv-step-1','csv-step-2','csv-step-3','csv-step-4'].forEach((id,i) => {
+    const el = document.getElementById(id); if (!el) return;
     el.classList.toggle('active', i === phaseIdx);
     el.classList.toggle('done',   i < phaseIdx);
   });
-
-  // Next button label
   const nextBtn = document.getElementById('csv-next-btn');
-  if (phase === 'upload') {
-    nextBtn.textContent = 'Next →';
-    nextBtn.disabled    = !csvState.fileLoaded;
-  } else if (phase === 'map') {
-    nextBtn.textContent = 'Preview →';
-    nextBtn.disabled    = false;
-  }
+  if (phase === 'upload') { nextBtn.textContent = 'Next →';    nextBtn.disabled = !csvState.fileLoaded; }
+  if (phase === 'map')    { nextBtn.textContent = 'Preview →'; nextBtn.disabled = false; }
 }
 
 function csvNextStep() {
@@ -2161,110 +2078,61 @@ function csvNextStep() {
     csvSetPhase('map');
   } else if (csvState.phase === 'map') {
     const missing = csvValidateMapping();
-    if (missing.length) {
-      toast(`Map required fields: ${missing.join(', ')}`, 'error');
-      return;
-    }
-    csvBuildPreview();
-    csvSetPhase('preview');
+    if (missing.length) { toast(`Map required fields: ${missing.join(', ')}`, 'error'); return; }
+    csvBuildPreview(); csvSetPhase('preview');
   } else if (csvState.phase === 'preview') {
     csvDoImport();
   }
 }
 
-// ── The actual import ─────────────────────────────────────────────────────────
-
 function csvDoImport() {
-  const validRows = csvState.parsed.filter(r => r.errors.length === 0);
+  const validRows = csvState.parsed.filter(r => !r.errors.length);
   if (!validRows.length) { toast('No valid rows to import', 'error'); return; }
-
   const snapshot = createDataSnapshot();
-
   let imported = 0;
   validRows.forEach(({ data }) => {
-    // Generate or use SKU
-    const sku = data.sku || `SKU-${String(skuCounter).padStart(3, '0')}`;
-
+    const sku = data.sku || `SKU-${String(skuCounter).padStart(3,'0')}`;
     products.push({
-      id:          nextProdId++,
-      sku,
-      name:        data.name,
-      brand:       data.brand       || '—',
-      variant:     data.variant     || '—',
-      category:    data.category    || 'Uncategorized',
-      cost:        data.cost,
-      price:       data.price,
-      stock:       data.stock,
-      minStock:    data.minStock    || 5,
-      batchNumber: data.batchNumber || '',
-      expiryDate:  data.expiryDate  || '',
+      id: nextProdId++, sku,
+      name: data.name, brand: data.brand||'—', variant: data.variant||'—',
+      category: data.category||'Uncategorized', cost: data.cost, price: data.price,
+      stock: data.stock, minStock: data.minStock||5,
+      batchNumber: data.batchNumber||'', expiryDate: data.expiryDate||'',
     });
-
-    skuCounter++;
-    imported++;
+    skuCounter++; imported++;
   });
-
   saveCurrentUserData();
-  addMovementEntry('Bulk Import', 'Inventory', `Imported ${imported} product${imported !== 1 ? 's' : ''} via CSV.`);
-
+  addMovementEntry('Bulk Import', 'Inventory', `Imported ${imported} product${imported!==1?'s':''} via CSV.`);
   render();
-  queueUndo(`${imported} product${imported !== 1 ? 's' : ''} imported.`, snapshot);
-
-  // Show success screen
+  queueUndo(`${imported} product${imported!==1?'s':''} imported.`, snapshot);
   showCsvSuccess(imported);
 }
 
 function showCsvSuccess(count) {
-  const body = document.getElementById('csv-modal-body');
-  body.innerHTML = `
+  document.getElementById('csv-modal-body').innerHTML = `
     <div class="csv-success-screen">
       <div class="csv-success-icon">✓</div>
-      <div class="csv-success-title">${count} Product${count !== 1 ? 's' : ''} Imported!</div>
-      <div class="csv-success-sub">
-        Your inventory has been updated. You can review the new products in the Products table.
-      </div>
-    </div>
-  `;
-
+      <div class="csv-success-title">${count} Product${count!==1?'s':''} Imported!</div>
+      <div class="csv-success-sub">Your inventory has been updated.</div>
+    </div>`;
   document.getElementById('csv-modal-footer').innerHTML = `
-    <div class="csv-footer-info">
-      <strong>${count} product${count !== 1 ? 's' : ''}</strong> added to your inventory.
-    </div>
+    <div class="csv-footer-info"><strong>${count} product${count!==1?'s':''}</strong> added.</div>
     <div class="csv-footer-actions">
       <button class="csv-btn-secondary" onclick="csvReset()">Import More</button>
       <button class="csv-btn-primary" onclick="closeCsvImport()">Done ✓</button>
-    </div>
-  `;
-
-  // Update step indicator
+    </div>`;
   ['csv-step-1','csv-step-2','csv-step-3','csv-step-4'].forEach(id => {
     const el = document.getElementById(id);
     if (el) { el.classList.remove('active'); el.classList.add('done'); }
   });
 }
 
-// ── Helpers ───────────────────────────────────────────────────────────────────
-
-function csvSetNextEnabled(enabled) {
-  const btn = document.getElementById('csv-next-btn');
-  if (btn) btn.disabled = !enabled;
-}
+function csvSetNextEnabled(e) { const b = document.getElementById('csv-next-btn'); if (b) b.disabled = !e; }
 
 function csvReset() {
-  csvState = {
-    phase:      'upload',
-    rawRows:    [],
-    headers:    [],
-    mapping:    {},
-    parsed:     [],
-    fileLoaded: false,
-  };
-
-  // Rebuild body if it was replaced by success screen
+  csvState = { phase:'upload', rawRows:[], headers:[], mapping:{}, parsed:[], fileLoaded:false };
   const body = document.getElementById('csv-modal-body');
   if (body && !document.getElementById('csv-phase-upload')) {
-    // The success screen replaced the body HTML — reload the modal body
-    // by re-rendering from scratch via a small template
     body.innerHTML = `
       <div class="csv-steps" id="csv-steps">
         <div class="csv-step active" id="csv-step-1"><div class="csv-step-dot">1</div><span>Upload</span></div>
@@ -2277,14 +2145,13 @@ function csvReset() {
       </div>
       <div id="csv-phase-upload" style="display:flex;flex-direction:column;gap:16px;">
         <div class="csv-template-strip">
-          <div><strong>New to this?</strong> Download our template — fill it in Excel or Google Sheets, then import.</div>
+          <div><strong>New to this?</strong> Download our template to get started.</div>
           <button class="csv-dl-btn" onclick="downloadCsvTemplate()">⬇ Template</button>
         </div>
         <div class="csv-drop-zone" id="csv-drop-zone"
           onclick="document.getElementById('csv-file-input').click()"
           ondragover="csvDragOver(event)" ondragleave="csvDragLeave(event)" ondrop="csvDrop(event)"
-          role="button" tabindex="0" aria-label="Drop CSV file here or click to browse"
-          onkeydown="if(event.key==='Enter'||event.key===' ')document.getElementById('csv-file-input').click()">
+          role="button" tabindex="0" aria-label="Drop CSV file here">
           <span class="csv-drop-icon">📂</span>
           <div class="csv-drop-title">Drop your CSV file here</div>
           <div class="csv-drop-sub">Drag &amp; drop a <strong>.csv</strong> file, or click to browse.</div>
@@ -2292,10 +2159,10 @@ function csvReset() {
           <input type="file" id="csv-file-input" accept=".csv,text/csv" style="display:none;" onchange="csvFileSelected(event)" />
         </div>
         <div class="csv-paste-area">
-          <div class="csv-paste-label"><span></span>Or paste CSV / spreadsheet data directly</div>
+          <div class="csv-paste-label"><span></span>Or paste CSV data directly</div>
           <textarea class="csv-paste-input" id="csv-paste-input"
-            placeholder="Name,Category,Brand,CostPrice,SellingPrice,Stock,MinStock&#10;Rice 5kg,Grains,Tata,80,120,50,10"
-            spellcheck="false" oninput="csvPasteChanged()" aria-label="Paste CSV data here"></textarea>
+            placeholder="Name,Category,Brand,CostPrice,SellingPrice,Stock,MinStock"
+            spellcheck="false" oninput="csvPasteChanged()" aria-label="Paste CSV data"></textarea>
         </div>
       </div>
       <div id="csv-phase-map" style="display:none;">
@@ -2308,63 +2175,19 @@ function csvReset() {
         <div class="csv-validation-bar" id="csv-validation-bar"></div>
         <div class="csv-error-list" id="csv-error-list" style="display:none;"></div>
         <div class="csv-preview-wrap">
-          <table class="csv-preview-table" id="csv-preview-table">
+          <table class="csv-preview-table">
             <thead id="csv-preview-thead"></thead>
             <tbody id="csv-preview-tbody"></tbody>
           </table>
         </div>
-      </div>
-    `;
+      </div>`;
   }
-
-  // Reset footer
   const footer = document.getElementById('csv-modal-footer');
-  if (footer) {
-    footer.innerHTML = `
-      <div class="csv-footer-info" id="csv-footer-info">Upload a CSV file or paste data above to get started.</div>
-      <div class="csv-footer-actions">
-        <button class="csv-btn-secondary" onclick="csvReset()">Reset</button>
-        <button class="csv-btn-primary" id="csv-next-btn" onclick="csvNextStep()" disabled>Next →</button>
-      </div>
-    `;
-  }
-
+  if (footer) footer.innerHTML = `
+    <div class="csv-footer-info" id="csv-footer-info">Upload a CSV file or paste data above to get started.</div>
+    <div class="csv-footer-actions">
+      <button class="csv-btn-secondary" onclick="csvReset()">Reset</button>
+      <button class="csv-btn-primary" id="csv-next-btn" onclick="csvNextStep()" disabled>Next →</button>
+    </div>`;
   csvSetPhase('upload');
-}
-// ============================================================================
-// INITIALIZATION & EVENT LISTENERS
-// ============================================================================
-
-window.addEventListener('load', () => {
-  loadFeaturePanels();   // keep legacy data compatible
-  loadViewMode();
-  initAuth();
-  loadTheme();
-  updateThemeButton();
-  syncProfileMenuTheme();
-  loadCurrency();
-  applyViewMode();       // show correct sections from the start
-  fetchExchangeRates();
-  render();
-  if (activeViewMode === 'insights') renderDashboard();
-  notifyImportantEvents();
-});
-
-document.addEventListener('keydown', event => {
-  if (event.key === 'Escape') { switchViewMode('home'); closeProfileMenu(); }
-  if (event.key !== 'Enter') return;
-  if (document.getElementById('auth-overlay')?.style.display === 'none') return;
-  handleAuthAction();
-});
-
-document.addEventListener('click', event => {
-  const { profileMenu } = getAuthElements();
-  if (!profileMenu) return;
-  if (!profileMenu.contains(event.target)) closeProfileMenu();
-});
-
-if ('serviceWorker' in navigator) {
-  navigator.serviceWorker.register('./sw.js')
-    .then(() => console.log('Service worker registered'))
-    .catch(err => console.log('SW error:', err));
 }

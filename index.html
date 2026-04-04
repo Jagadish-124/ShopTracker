@@ -16,6 +16,12 @@
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
   <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&family=Space+Grotesk:wght@500;700&display=swap" rel="stylesheet" />
   <link rel="stylesheet" href="style.css" />
+  <link rel="stylesheet" href="csv-import.css" />
+  <!-- Firebase v9 compat (no bundler needed) -->
+  <script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-app-compat.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-auth-compat.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-firestore-compat.js"></script>
+  <script src="firebase.js"></script>
   <script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.js"></script>
   <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
   <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf-autotable/3.6.0/jspdf.plugin.autotable.min.js"></script>
@@ -50,8 +56,39 @@
         <button id="auth-switch-btn" type="button" class="auth-secondary-btn" onclick="switchAuthMode()" style="display:none;">
           Need to create an account?
         </button>
+        <button id="auth-forgot-btn" type="button" class="auth-secondary-btn" onclick="handleForgotPassword()" style="display:inline-flex;font-size:12px;opacity:0.75;">
+          Forgot password?
+        </button>
       </div>
       <div id="auth-message" class="auth-message"></div>
+    </div>
+  </div>
+
+  <!-- ====================================================
+       EMAIL VERIFICATION SCREEN
+       ==================================================== -->
+  <div id="verify-screen" style="display:none;" class="auth-overlay">
+    <div class="auth-card" style="text-align:center;">
+      <div style="font-size:48px;margin-bottom:16px;">📧</div>
+      <div class="auth-badge" style="margin:0 auto 16px;">Verify your email</div>
+      <h2 style="font-size:22px;margin-bottom:10px;">Check your inbox</h2>
+      <p class="auth-subtitle" style="margin:0 auto 24px;max-width:30ch;">
+        We sent a verification link to your email. Click it to activate your account and access your dashboard.
+      </p>
+      <div class="auth-form" style="gap:10px;">
+        <button onclick="checkEmailVerified()" style="background:linear-gradient(135deg,var(--green),var(--green-dark));color:#fff;border:none;height:44px;border-radius:10px;font-size:14px;font-weight:700;cursor:pointer;box-shadow:0 8px 24px rgba(29,158,117,0.3);">
+          ✓ I've verified my email
+        </button>
+        <button onclick="resendVerificationEmail()" class="auth-secondary-btn" style="height:44px;border-radius:10px;font-size:13px;">
+          Resend verification email
+        </button>
+        <button onclick="logout()" class="auth-secondary-btn" style="height:40px;border-radius:10px;font-size:12px;opacity:0.7;">
+          ← Back to login
+        </button>
+      </div>
+      <p style="font-size:11px;color:var(--muted);margin-top:16px;line-height:1.5;">
+        Didn't get it? Check your spam folder.<br>The link expires in 24 hours.
+      </p>
     </div>
   </div>
 
@@ -82,8 +119,8 @@
           </label>
           <button onclick="exportCSV()" class="export-btn csv-btn" aria-label="Export CSV">⬇ Export CSV</button>
           <button onclick="exportPDF()" class="export-btn pdf-btn" aria-label="Export PDF">⬇ Export PDF</button>
-          <button class="import-csv-btn" onclick="openCsvImport()">⬆ Import CSV</button>
           <button onclick="clearAllData()" class="clear-btn" aria-label="Clear all data">🗑 Clear All</button>
+          <button class="import-csv-btn" onclick="openCsvImport()" aria-label="Import products from CSV">⬆ Import CSV</button>
           <!-- Legacy hidden elements kept for JS compatibility -->
           <button onclick="toggleTheme()" id="theme-btn" class="export-btn" style="display:none;" aria-label="Toggle theme">🌙</button>
           <button onclick="logout()" id="logout-btn" class="export-btn" style="display:none;" aria-label="Sign out">Sign Out</button>
@@ -610,177 +647,80 @@
         </table>
       </div>
 
-      <!-- Date Range Filter -->
-      <div class="date-filter-bar">
-        <div style="display:flex;align-items:center;gap:8px;">
-          <span style="font-size:13px;color:var(--muted);font-weight:600;">FROM</span>
-          <input type="date" id="date-from-reports" onchange="setDateFrom(this.value)"
-            style="height:36px;padding:0 10px;border:1px solid var(--card-border);border-radius:8px;background:var(--input-bg);color:var(--text);font-size:13px;outline:none;"
-            aria-label="Start date" />
-        </div>
-        <div style="display:flex;align-items:center;gap:8px;">
-          <span style="font-size:13px;color:var(--muted);font-weight:600;">TO</span>
-          <input type="date" id="date-to-reports" onchange="setDateTo(this.value)"
-            style="height:36px;padding:0 10px;border:1px solid var(--card-border);border-radius:8px;background:var(--input-bg);color:var(--text);font-size:13px;outline:none;"
-            aria-label="End date" />
-        </div>
-        <button onclick="clearDateFilter()" class="export-btn" style="border-color:rgba(107,114,128,0.4);color:var(--muted);" aria-label="Clear date filter">
-          ✕ Clear Filter
-        </button>
-      </div>
-      <div id="date-stats" style="display:none;gap:12px;margin-bottom:16px;flex-wrap:wrap;"></div>
-      <div id="date-range-insights" class="range-insights-grid" style="display:none;"></div>
     </section>
+
+  <!-- CSV Import Modal -->
+  <div id="csv-import-backdrop" class="csv-modal-backdrop" style="display:none;" aria-modal="true" role="dialog" aria-labelledby="csv-modal-title">
+    <div class="csv-modal" id="csv-modal">
+      <div class="csv-modal-header">
+        <div>
+          <div class="csv-modal-kicker">Bulk Import</div>
+          <div class="csv-modal-title" id="csv-modal-title">Import Products via CSV</div>
+        </div>
+        <button class="csv-modal-close" onclick="closeCsvImport()" aria-label="Close">✕</button>
+      </div>
+      <div class="csv-modal-body" id="csv-modal-body">
+        <div class="csv-steps" id="csv-steps">
+          <div class="csv-step active" id="csv-step-1"><div class="csv-step-dot">1</div><span>Upload</span></div>
+          <div class="csv-step-line"></div>
+          <div class="csv-step" id="csv-step-2"><div class="csv-step-dot">2</div><span>Map</span></div>
+          <div class="csv-step-line"></div>
+          <div class="csv-step" id="csv-step-3"><div class="csv-step-dot">3</div><span>Review</span></div>
+          <div class="csv-step-line"></div>
+          <div class="csv-step" id="csv-step-4"><div class="csv-step-dot">4</div><span>Import</span></div>
+        </div>
+        <div id="csv-phase-upload" style="display:flex;flex-direction:column;gap:16px;">
+          <div class="csv-template-strip">
+            <div><strong>New to this?</strong> Download our template — fill it in Excel or Google Sheets, then import.</div>
+            <button class="csv-dl-btn" onclick="downloadCsvTemplate()">⬇ Template</button>
+          </div>
+          <div class="csv-drop-zone" id="csv-drop-zone"
+            onclick="document.getElementById('csv-file-input').click()"
+            ondragover="csvDragOver(event)" ondragleave="csvDragLeave(event)" ondrop="csvDrop(event)"
+            role="button" tabindex="0" aria-label="Drop CSV file here or click to browse">
+            <span class="csv-drop-icon">📂</span>
+            <div class="csv-drop-title">Drop your CSV file here</div>
+            <div class="csv-drop-sub">Drag &amp; drop a <strong>.csv</strong> file, or click to browse.<br>Supports Excel exports and Google Sheets downloads.</div>
+            <button class="csv-file-btn" type="button" onclick="event.stopPropagation();document.getElementById('csv-file-input').click()">📁 Browse File</button>
+            <input type="file" id="csv-file-input" accept=".csv,text/csv" style="display:none;" onchange="csvFileSelected(event)" />
+          </div>
+          <div class="csv-paste-area">
+            <div class="csv-paste-label"><span></span>Or paste CSV / spreadsheet data directly</div>
+            <textarea class="csv-paste-input" id="csv-paste-input"
+              placeholder="Name,Category,Brand,CostPrice,SellingPrice,Stock,MinStock&#10;Rice 5kg,Grains,Tata,80,120,50,10"
+              spellcheck="false" oninput="csvPasteChanged()" aria-label="Paste CSV data here"></textarea>
+          </div>
+        </div>
+        <div id="csv-phase-map" style="display:none;">
+          <div class="csv-mapper">
+            <div class="csv-mapper-header"><span>🔗</span> Map your columns to product fields</div>
+            <div class="csv-mapper-grid" id="csv-mapper-grid"></div>
+          </div>
+        </div>
+        <div id="csv-phase-preview" style="display:none;">
+          <div class="csv-validation-bar" id="csv-validation-bar"></div>
+          <div class="csv-error-list" id="csv-error-list" style="display:none;"></div>
+          <div class="csv-preview-wrap">
+            <table class="csv-preview-table">
+              <thead id="csv-preview-thead"></thead>
+              <tbody id="csv-preview-tbody"></tbody>
+            </table>
+          </div>
+        </div>
+      </div>
+      <div class="csv-modal-footer" id="csv-modal-footer">
+        <div class="csv-footer-info" id="csv-footer-info">Upload a CSV file or paste data above to get started.</div>
+        <div class="csv-footer-actions">
+          <button class="csv-btn-secondary" onclick="csvReset()">Reset</button>
+          <button class="csv-btn-primary" id="csv-next-btn" onclick="csvNextStep()" disabled>Next →</button>
+        </div>
+      </div>
+    </div>
+  </div>
 
   </div><!-- /#app-shell -->
 
   <script src="script.js"></script>
-<!-- ============================================================
- BULK CSV IMPORT — drop this modal anywhere inside #app-shell,
- and add the trigger button wherever you need it in the header.
-============================================================ -->
-
-
-<!-- MODAL — paste just before </div> of #app-shell -->
-<div id="csv-import-backdrop" class="csv-modal-backdrop" style="display:none;" aria-modal="true" role="dialog" aria-labelledby="csv-modal-title">
-  <div class="csv-modal" id="csv-modal">
-
-    <!-- Header -->
-    <div class="csv-modal-header">
-      <div>
-        <div class="csv-modal-kicker">Bulk Import</div>
-        <div class="csv-modal-title" id="csv-modal-title">Import Products via CSV</div>
-      </div>
-      <button class="csv-modal-close" onclick="closeCsvImport()" aria-label="Close import modal">✕</button>
-    </div>
-
-    <!-- Body -->
-    <div class="csv-modal-body" id="csv-modal-body">
-
-      <!-- Step indicator -->
-      <div class="csv-steps" id="csv-steps">
-        <div class="csv-step active" id="csv-step-1">
-          <div class="csv-step-dot">1</div>
-          <span>Upload</span>
-        </div>
-        <div class="csv-step-line"></div>
-        <div class="csv-step" id="csv-step-2">
-          <div class="csv-step-dot">2</div>
-          <span>Map</span>
-        </div>
-        <div class="csv-step-line"></div>
-        <div class="csv-step" id="csv-step-3">
-          <div class="csv-step-dot">3</div>
-          <span>Review</span>
-        </div>
-        <div class="csv-step-line"></div>
-        <div class="csv-step" id="csv-step-4">
-          <div class="csv-step-dot">4</div>
-          <span>Import</span>
-        </div>
-      </div>
-
-      <!-- STEP 1: Upload -->
-      <div id="csv-phase-upload">
-
-        <!-- Template download -->
-        <div class="csv-template-strip">
-          <div>
-            <strong>New to this?</strong> Download our template — fill it in Excel or Google Sheets, then import.
-          </div>
-          <button class="csv-dl-btn" onclick="downloadCsvTemplate()">⬇ Template</button>
-        </div>
-
-        <!-- Drop zone -->
-        <div
-          class="csv-drop-zone"
-          id="csv-drop-zone"
-          onclick="document.getElementById('csv-file-input').click()"
-          ondragover="csvDragOver(event)"
-          ondragleave="csvDragLeave(event)"
-          ondrop="csvDrop(event)"
-          role="button"
-          tabindex="0"
-          aria-label="Drop CSV file here or click to browse"
-          onkeydown="if(event.key==='Enter'||event.key===' ')document.getElementById('csv-file-input').click()"
-        >
-          <span class="csv-drop-icon">📂</span>
-          <div class="csv-drop-title">Drop your CSV file here</div>
-          <div class="csv-drop-sub">
-            Drag &amp; drop a <strong>.csv</strong> file, or click to browse.<br>
-            Supports Excel exports and Google Sheets downloads.
-          </div>
-          <button class="csv-file-btn" type="button" onclick="event.stopPropagation();document.getElementById('csv-file-input').click()">
-            📁 Browse File
-          </button>
-          <input type="file" id="csv-file-input" accept=".csv,text/csv" style="display:none;" onchange="csvFileSelected(event)" />
-        </div>
-
-        <!-- Paste area -->
-        <div class="csv-paste-area">
-          <div class="csv-paste-label">
-            <span></span>
-            Or paste CSV / spreadsheet data directly
-          </div>
-          <textarea
-            class="csv-paste-input"
-            id="csv-paste-input"
-            placeholder="Name,Category,Brand,CostPrice,SellingPrice,Stock,MinStock&#10;Rice 5kg,Grains,Tata,80,120,50,10&#10;Wheat Flour 1kg,Grains,Aashirvaad,40,65,30,5"
-            spellcheck="false"
-            oninput="csvPasteChanged()"
-            aria-label="Paste CSV data here"
-          ></textarea>
-        </div>
-
-      </div><!-- /#csv-phase-upload -->
-
-      <!-- STEP 2: Column Mapper (hidden until file loaded) -->
-      <div id="csv-phase-map" style="display:none;">
-        <div class="csv-mapper">
-          <div class="csv-mapper-header">
-            <span>🔗</span> Map your columns to product fields
-          </div>
-          <div class="csv-mapper-grid" id="csv-mapper-grid">
-            <!-- populated by JS -->
-          </div>
-        </div>
-      </div>
-
-      <!-- STEP 3 & 4: Preview + Validation (hidden until mapped) -->
-      <div id="csv-phase-preview" style="display:none;">
-
-        <!-- Validation summary -->
-        <div class="csv-validation-bar" id="csv-validation-bar"></div>
-
-        <!-- Error list (shown only when errors exist) -->
-        <div class="csv-error-list" id="csv-error-list" style="display:none;"></div>
-
-        <!-- Preview table -->
-        <div class="csv-preview-wrap">
-          <table class="csv-preview-table" id="csv-preview-table">
-            <thead id="csv-preview-thead"></thead>
-            <tbody id="csv-preview-tbody"></tbody>
-          </table>
-        </div>
-
-      </div><!-- /#csv-phase-preview -->
-
-    </div><!-- /.csv-modal-body -->
-
-    <!-- Footer -->
-    <div class="csv-modal-footer" id="csv-modal-footer">
-      <div class="csv-footer-info" id="csv-footer-info">
-        Upload a CSV file or paste data above to get started.
-      </div>
-      <div class="csv-footer-actions">
-        <button class="csv-btn-secondary" onclick="csvReset()">Reset</button>
-        <button class="csv-btn-primary" id="csv-next-btn" onclick="csvNextStep()" disabled>
-          Next →
-        </button>
-      </div>
-    </div>
-
-  </div><!-- /.csv-modal -->
-</div><!-- /#csv-import-backdrop -->
+  <script src="csv-import.js"></script>
 </body>
 </html>
