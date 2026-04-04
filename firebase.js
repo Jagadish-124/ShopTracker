@@ -83,7 +83,9 @@ async function fbSaveUserData(uid, data) {
 }
 
 function fbSubscribeUserData(uid, onUpdate) {
-  return userDataDoc(uid).onSnapshot(snap => { if (snap.exists) onUpdate(snap.data()); });
+  return userDataDoc(uid).onSnapshot({ includeMetadataChanges: true }, snap => { 
+    if (snap.exists) onUpdate(snap.data(), snap.metadata); 
+  }, error => console.error("Snapshot error:", error));
 }
 
 Object.assign(window, {

@@ -768,6 +768,44 @@
     </div>
   </div>
 
+  <!-- ====================================================
+       QUICK SELL MODAL (Number Pad)
+       ==================================================== -->
+  <div id="quick-sell-modal" class="delete-acct-backdrop" style="display:none;" role="dialog" aria-modal="true" aria-labelledby="qs-product-name">
+    <div class="delete-acct-card" style="width: min(100%, 400px); padding: 24px;">
+      <div id="qs-product-name" style="font-weight: 800; font-size: 1.25rem; margin-bottom: 4px; color: var(--text);">Product Name</div>
+      <div id="qs-stock-info" style="font-size: 13px; color: var(--muted); margin-bottom: 16px;">Stock: 0 units</div>
+      
+      <div id="qs-display" style="background: var(--input-bg); padding: 12px; border-radius: 12px; font-size: 2.4rem; font-weight: 800; text-align: center; margin-bottom: 16px; border: 1px solid var(--card-border); color: var(--green); font-family: 'Space Grotesk', sans-serif;">0</div>
+      
+      <div style="display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; margin-bottom: 16px;">
+        <button class="workspace-nav-btn" onclick="qsAdd(1)" style="font-size: 1.5rem; height: 56px; border: 1px solid var(--card-border);">1</button>
+        <button class="workspace-nav-btn" onclick="qsAdd(2)" style="font-size: 1.5rem; height: 56px; border: 1px solid var(--card-border);">2</button>
+        <button class="workspace-nav-btn" onclick="qsAdd(3)" style="font-size: 1.5rem; height: 56px; border: 1px solid var(--card-border);">3</button>
+        <button class="workspace-nav-btn" onclick="qsAdd(4)" style="font-size: 1.5rem; height: 56px; border: 1px solid var(--card-border);">4</button>
+        <button class="workspace-nav-btn" onclick="qsAdd(5)" style="font-size: 1.5rem; height: 56px; border: 1px solid var(--card-border);">5</button>
+        <button class="workspace-nav-btn" onclick="qsAdd(6)" style="font-size: 1.5rem; height: 56px; border: 1px solid var(--card-border);">6</button>
+        <button class="workspace-nav-btn" onclick="qsAdd(7)" style="font-size: 1.5rem; height: 56px; border: 1px solid var(--card-border);">7</button>
+        <button class="workspace-nav-btn" onclick="qsAdd(8)" style="font-size: 1.5rem; height: 56px; border: 1px solid var(--card-border);">8</button>
+        <button class="workspace-nav-btn" onclick="qsAdd(9)" style="font-size: 1.5rem; height: 56px; border: 1px solid var(--card-border);">9</button>
+        <button class="workspace-nav-btn" onclick="qsClear()" style="font-size: 1rem; height: 56px; color: var(--red); border: 1px solid var(--card-border); font-weight: 800;">CLR</button>
+        <button class="workspace-nav-btn" onclick="qsAdd(0)" style="font-size: 1.5rem; height: 56px; border: 1px solid var(--card-border);">0</button>
+        <button class="workspace-nav-btn" onclick="qsBack()" style="font-size: 1.3rem; height: 56px; border: 1px solid var(--card-border);">⌫</button>
+      </div>
+
+      <div class="form-group" style="text-align: left; margin-bottom: 20px;">
+        <label for="qs-note" style="font-size: 11px; margin-bottom: 6px;">Note (optional)</label>
+        <input type="text" id="qs-note" placeholder="Sale reference, customer, etc." 
+          style="width: 100%; height: 44px; padding: 0 14px; border-radius: 10px; border: 1px solid var(--card-border); background: var(--input-bg); color: var(--text); font-size: 14px; outline: none;" />
+      </div>
+
+      <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 10px;">
+        <button class="delete-acct-cancel" onclick="closeQuickSell()">Cancel</button>
+        <button class="csv-btn-primary" onclick="confirmQuickSell()" style="height: 44px;">Complete Sale</button>
+      </div>
+    </div>
+  </div>
+
   </div><!-- /#app-shell -->
 
   <script src="script.js"></script>

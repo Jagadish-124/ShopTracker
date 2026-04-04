@@ -18,11 +18,14 @@ let doughnutChart = null;
 let authMode = 'login';
 let currentUser = null;
 let dailyGoal = 0;
+let activeQuickSellId = null;
+let quickSellQty = '0';
 let pendingUndoTimer = null;
 let notificationSettings = { enabled: false, lowStock: true, goal: true };
 let firestoreUnsub = null;
 let completeLoginInProgress = false; // ← guard against double-fire
 let _saveDebounceTimer = null;       // ← debounce Firestore writes
+let _lastSyncedAt = 0;               // ← track last known server timestamp
 
 // ── Offline detection ────────────────────────────────────────────────────────
 let _isOnline = navigator.onLine;
@@ -89,8 +92,17 @@ function hideLoadingScreen() {
 // DATA LAYER — Firebase Firestore
 // ============================================================================
 
+/** Helper to extract milliseconds from Firestore Timestamps or dates */
+function getMillis(ts) {
+  if (!ts) return 0;
+  if (typeof ts.toMillis === 'function') return ts.toMillis();
+  if (ts.seconds !== undefined) return ts.seconds * 1000;
+  return new Date(ts).getTime() || 0;
+}
+
 function applyUserData(data) {
   if (!data) return;
+  _lastSyncedAt        = getMillis(data.updatedAt);
   products             = data.products             || [];
   transactions         = data.transactions         || [];
   restockHistory       = data.restockHistory       || [];
@@ -115,6 +127,13 @@ function buildDataPayload() {
   };
 }
 
+/** Helper to identify if a Firestore/Auth error is session-related */
+function isSessionError(e) {
+  if (!e) return false;
+  const code = e.code || '';
+  return code === 'permission-denied' || code === 'unauthenticated' || code.includes('auth/user-token-expired');
+}
+
 // ← IMPROVED: debounced, error-aware, with offline queue
 function saveCurrentUserData(immediate = false) {
   if (!currentUser) return Promise.resolve();
@@ -137,8 +156,19 @@ function saveCurrentUserData(immediate = false) {
       })
       .catch(e => {
         console.error('Firestore save error:', e);
+        if (isSessionError(e)) {
+          handleSessionExpired();
+          return;
+        }
+
         _queuePendingSave(buildDataPayload());
-        updateSaveStatus('queued');
+        updateSaveStatus('error');
+        
+        const msg = e.code === 'resource-exhausted' 
+          ? 'Cloud storage quota exceeded. Changes saved locally only.' 
+          : 'Cloud sync failed. Changes are saved locally.';
+        toast(msg, 'warning', null, 6000);
+
         if (!_isOnline) updateOfflineBanner(false);
       });
   }
@@ -154,12 +184,51 @@ function saveCurrentUserData(immediate = false) {
         updateSaveStatus('saved');
       } catch(e) {
         console.error('Firestore save error:', e);
+        if (isSessionError(e)) {
+          handleSessionExpired();
+          return;
+        }
+
         _queuePendingSave(buildDataPayload());
-        updateSaveStatus('queued');
+        updateSaveStatus('error');
+        
+        const msg = e.code === 'resource-exhausted' 
+          ? 'Cloud storage quota reached. Saving locally...' 
+          : 'Sync error. Changes saved locally.';
+        toast(msg, 'warning', null, 5000);
       }
       resolve();
     }, 800);
   });
+}
+
+/** 
+ * Handles cases where the Firebase session is no longer valid.
+ * Forces the UI back to login without wiping the user's current local state
+ * so they can log back in and sync their work.
+ */
+function handleSessionExpired() {
+  updateSaveStatus('error');
+  toast('Your session has expired. Please log in again to sync your changes.', 'error', null, 10000);
+  
+  // We DON'T call the full logout() here because logout() wipes the 'products' array.
+  // We just trigger the Firebase signout and let onAuthStateChanged handle the UI.
+  fbSignOut().then(() => {
+    currentUser = null;
+    if (firestoreUnsub) { firestoreUnsub(); firestoreUnsub = null; }
+  });
+}
+
+/** 
+ * Handles data conflicts where another tab saved changes while this one 
+ * was either offline or has unsaved local changes.
+ */
+function handleSyncConflict(remoteData) {
+  updateSaveStatus('error');
+  toast('Another tab has updated the data.', 'warning', {
+    label: 'Sync Now',
+    onClick: () => { applyUserData(remoteData); render(); toast('Synchronized with cloud ✓'); }
+  }, 15000);
 }
 
 // Persist the payload to localStorage so data survives tab closure while offline
@@ -192,7 +261,8 @@ async function flushPendingSave() {
     toast('Data synced to cloud ✓', 'success');
   } catch(e) {
     console.error('Flush failed:', e);
-    updateSaveStatus('queued');
+    updateSaveStatus('error');
+    toast('Failed to sync local data to cloud. Retrying in background...', 'error');
   }
 }
 
@@ -750,16 +820,28 @@ async function checkEmailVerified() {
 }
 
 function initAuth() {
-  fbOnAuthStateChanged(async fbUser => {
+  // onAuthStateChanged triggers on sign-in/sign-out.
+  // We use this for the primary UI routing.
+  fbOnAuthStateChanged(handleAuthChange);
+}
+
+async function handleAuthChange(fbUser) {
     setAuthLoading(false); // ← always unblock button when Firebase responds
 
     if (!fbUser) {
       hideLoadingScreen();
+      // If we were previously logged in and the user is now null, 
+      // it means the session was invalidated or the user signed out.
+      if (currentUser) {
+        toast('Session closed.', 'info');
+      }
       updateAuthMode('login');
       updateAuthUI(null);
+      currentUser = null;
       return;
     }
 
+    const isNewUser = !currentUser || currentUser.uid !== fbUser.uid;
     currentUser = fbUser;
 
     if (!fbUser.emailVerified) {
@@ -768,8 +850,13 @@ function initAuth() {
       return;
     }
 
-    await completeLogin(fbUser);
-  });
+    // If it's a fresh login or a re-auth, complete the setup
+    if (isNewUser) {
+      await completeLogin(fbUser);
+    } else {
+      // Token was simply refreshed or verified; update UI but don't re-init everything
+      updateAuthUI(fbUser);
+    }
 }
 
 // ============================================================================
@@ -1308,12 +1395,8 @@ function renderProducts() {
         <td>${stockBadge}</td>
         <td style="color:var(--muted);font-size:13px;">${p.minStock} units</td>
         <td>
-          <input type="number" id="qty-${p.id}" placeholder="Qty" min="1" max="${p.stock}"
-            style="width:60px;height:32px;padding:0 8px;border-radius:8px;border:1px solid var(--card-border);background:var(--input-bg);color:var(--text);font-size:13px;" />
-          <input type="text" id="note-${p.id}" placeholder="Note (optional)"
-            style="width:110px;height:32px;padding:0 8px;border-radius:8px;border:1px solid var(--card-border);background:var(--input-bg);color:var(--text);font-size:13px;margin-left:4px;" />
-          <button class="sell-btn" onclick="sellProduct(${p.id})" ${isEmpty?'disabled':''}>
-            ${isEmpty?'Out of stock':'Sell'}
+          <button class="sell-btn" onclick="openQuickSell(${p.id})" ${isEmpty?'disabled':''}>
+            ${isEmpty ? 'Out of Stock' : 'Sell'}
           </button>
         </td>
         <td>
@@ -1348,12 +1431,13 @@ function setSort(val)     { sortBy = val;                    renderProducts(); }
 // SALES & TRANSACTIONS
 // ============================================================================
 
-// ← IMPROVED: warns before selling large chunk of stock
-function sellProduct(id) {
-  const qtyInput  = document.getElementById('qty-' + id);
-  const noteInput = document.getElementById('note-' + id);
-  const qty       = parseInt(qtyInput.value);
-  const note      = noteInput ? noteInput.value.trim() : '';
+// ← IMPROVED: Supports manual qty/note for Quick Sell Number Pad
+function sellProduct(id, manualQty = null, manualNote = null) {
+  const qtyInput  = document.getElementById('qty-' + id); // fallback
+  const noteInput = document.getElementById('note-' + id); // fallback
+
+  const qty       = manualQty !== null ? manualQty : parseInt(qtyInput?.value);
+  const note      = manualNote !== null ? manualNote : (noteInput ? noteInput.value.trim() : '');
   const product   = products.find(p => p.id === id);
 
   if (!product) return;
@@ -1387,6 +1471,64 @@ function sellProduct(id) {
   render();
   toast(`✓ Sold ${qty}× ${product.name} — profit ${fmt(profit)}`);
   notifyImportantEvents();
+}
+
+function openQuickSell(id) {
+  const p = products.find(x => x.id === id);
+  if (!p) return;
+  activeQuickSellId = id;
+  quickSellQty = '0';
+  
+  const modal = document.getElementById('quick-sell-modal');
+  const nameDisplay = document.getElementById('qs-product-name');
+  const stockDisplay = document.getElementById('qs-stock-info');
+  const display = document.getElementById('qs-display');
+  const noteInput = document.getElementById('qs-note');
+
+  if (nameDisplay) nameDisplay.textContent = p.name;
+  if (stockDisplay) stockDisplay.textContent = `Stock: ${p.stock} units`;
+  if (display) display.textContent = '0';
+  if (noteInput) noteInput.value = '';
+
+  modal.style.display = 'flex';
+  requestAnimationFrame(() => modal.classList.add('open'));
+}
+
+function closeQuickSell() {
+  const modal = document.getElementById('quick-sell-modal');
+  if (!modal) return;
+  modal.classList.remove('open');
+  setTimeout(() => { modal.style.display = 'none'; }, 280);
+  activeQuickSellId = null;
+}
+
+function qsAdd(n) {
+  if (quickSellQty === '0') quickSellQty = String(n);
+  else quickSellQty += String(n);
+  if (quickSellQty.length > 6) quickSellQty = quickSellQty.slice(0, 6);
+  const display = document.getElementById('qs-display');
+  if (display) display.textContent = quickSellQty;
+}
+
+function qsClear() {
+  quickSellQty = '0';
+  const display = document.getElementById('qs-display');
+  if (display) display.textContent = '0';
+}
+
+function qsBack() {
+  if (quickSellQty.length <= 1) quickSellQty = '0';
+  else quickSellQty = quickSellQty.slice(0, -1);
+  const display = document.getElementById('qs-display');
+  if (display) display.textContent = quickSellQty;
+}
+
+function confirmQuickSell() {
+  const qty = parseInt(quickSellQty);
+  if (qty <= 0) { toast('Enter a quantity greater than 0.', 'error'); return; }
+  const note = document.getElementById('qs-note')?.value?.trim() || '';
+  sellProduct(activeQuickSellId, qty, note);
+  closeQuickSell();
 }
 
 function deleteTransaction(id) {
@@ -2081,7 +2223,16 @@ document.addEventListener('keydown', event => {
     if (csvBackdrop && csvBackdrop.style.display !== 'none') { closeCsvImport(); return; }
     const confirmModal = document.getElementById('confirm-modal');
     if (confirmModal) { confirmModal.remove(); return; }
+    const qsModal = document.getElementById('quick-sell-modal');
+    if (qsModal && qsModal.style.display !== 'none') { closeQuickSell(); return; }
     if (activeViewMode !== 'home') { switchViewMode('home'); return; }
+  }
+
+  const qsModal = document.getElementById('quick-sell-modal');
+  if (qsModal && qsModal.style.display !== 'none') {
+    if (event.key >= '0' && event.key <= '9') { qsAdd(parseInt(event.key)); return; }
+    if (event.key === 'Backspace') { qsBack(); return; }
+    if (event.key === 'Enter') { confirmQuickSell(); return; }
   }
 
   if (event.key === 'Enter') {
@@ -2106,6 +2257,7 @@ document.addEventListener('keydown', event => {
 
 document.addEventListener('click', event => {
   const { profileMenu } = getAuthElements();
+  if (event.target && event.target.id === 'quick-sell-modal') closeQuickSell();
   if (!profileMenu) return;
   if (!profileMenu.contains(event.target)) closeProfileMenu();
 });
@@ -2115,15 +2267,6 @@ if ('serviceWorker' in navigator) {
     .then(() => console.log('Service worker registered'))
     .catch(err => console.log('SW error:', err));
 }
-
-// ============================================================================
-// ADD THIS TO style.css  (warning toast colour)
-// ============================================================================
-/*
-.toast-warning {
-  background: linear-gradient(135deg, rgba(234,179,8,0.96), rgba(180,130,0,0.92));
-}
-*/
 
 // ============================================================================
 // BULK CSV IMPORT MODULE  (unchanged — paste your existing csvReset etc. here)

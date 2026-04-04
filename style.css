@@ -3203,6 +3203,7 @@ BULK CSV IMPORT MODAL
   background: rgba(216, 90, 48, 0.12);
   border-color: rgba(216, 90, 48, 0.25);
   color: #D85A30;
+  animation: saveErrorShake 0.4s ease-in-out;
 }
 
 /* light-mode variants */
@@ -3217,4 +3218,3 @@ body.light .save-status-saved {
 body.light .save-status-queued {
   background: rgba(234, 150, 0, 0.1);
 }
-
