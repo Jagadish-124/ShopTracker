@@ -1,15 +1,3 @@
-const firebaseConfig = {
-  apiKey: "YOUR_API_KEY",
-  authDomain: "yourproject.firebaseapp.com",
-  projectId: "shoptracker-xxxxx",
-  storageBucket: "yourproject.appspot.com",
-  messagingSenderId: "123456789",
-  appId: "1:123456789:web:abcdef"
-};
-
-const app = firebase.initializeApp(firebaseConfig);
-const auth = firebase.auth();
-const db = firebase.firestore();
 const USERS_KEY = 'shopUsers';
 const CURRENT_USER_KEY = 'currentUserId';
 
