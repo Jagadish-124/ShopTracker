@@ -23,25 +23,67 @@ let currentUser = null;
 let dailyGoal = 0;
 let pendingUndoTimer = null;
 let notificationSettings = { enabled: false, lowStock: true, goal: true };
-let firestoreUnsub = null; // real-time listener unsubscribe fn
+let firestoreUnsub = null;
+let completeLoginInProgress = false; // ← NEW: guard against double-fire
+let _saveDebounceTimer = null;       // ← NEW: debounce Firestore writes
 
 const VIEW_MODE_KEY = 'activeViewMode';
-
-// Valid view modes:
-//   'home'      – default dashboard
-//   'inventory' – Stock Watch only
-//   'insights'  – Analytics Dashboard only
-//   'reports'   – Reports Lab only
-//   'timeline'  – Inventory Timeline only
 let activeViewMode = 'home';
 
-// ── Legacy panel state (kept so old localStorage keys don't break anything) ──
 const FEATURE_PANEL_KEY = 'featurePanels';
 const featurePanelDefaults = { analytics: false, stock: false, timeline: false, reports: false };
 let featurePanels = { ...featurePanelDefaults };
 
 // ============================================================================
-// DATA LAYER — Firebase Firestore (replaces localStorage user data)
+// LOADING SCREEN  ← NEW
+// ============================================================================
+
+function showLoadingScreen() {
+  const el = document.createElement('div');
+  el.id = 'app-loading-screen';
+  el.innerHTML = `
+    <div class="app-loader-inner">
+      <div class="app-loader-logo">
+        <svg width="44" height="44" viewBox="0 0 44 44" fill="none">
+          <rect width="44" height="44" rx="14" fill="rgba(29,158,117,0.15)" stroke="rgba(29,158,117,0.4)" stroke-width="1.5"/>
+          <path d="M12 22h6l4-8 4 16 4-8h6" stroke="#1D9E75" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"/>
+        </svg>
+      </div>
+      <div class="app-loader-title">Shop Tracker</div>
+      <div class="app-loader-dots"><span></span><span></span><span></span></div>
+    </div>
+  `;
+  el.style.cssText = `
+    position:fixed;inset:0;z-index:99999;
+    background:linear-gradient(135deg,#0a0d14,#0f1117);
+    display:flex;align-items:center;justify-content:center;
+    flex-direction:column;gap:0;transition:opacity 0.4s ease;
+  `;
+  document.head.insertAdjacentHTML('beforeend', `<style>
+    .app-loader-inner{display:flex;flex-direction:column;align-items:center;gap:16px;}
+    .app-loader-logo{animation:loaderPop 0.5s cubic-bezier(0.34,1.56,0.64,1) both;}
+    .app-loader-title{font-family:'Space Grotesk',sans-serif;font-size:22px;font-weight:800;
+      color:#f0f0f0;letter-spacing:-0.03em;}
+    .app-loader-dots{display:flex;gap:6px;margin-top:4px;}
+    .app-loader-dots span{width:7px;height:7px;border-radius:50%;background:#1D9E75;
+      animation:loaderDot 1.2s ease-in-out infinite;}
+    .app-loader-dots span:nth-child(2){animation-delay:0.2s;}
+    .app-loader-dots span:nth-child(3){animation-delay:0.4s;}
+    @keyframes loaderPop{from{opacity:0;transform:scale(0.7)}to{opacity:1;transform:scale(1)}}
+    @keyframes loaderDot{0%,80%,100%{opacity:0.2;transform:scale(0.8)}40%{opacity:1;transform:scale(1)}}
+  `);
+  document.body.appendChild(el);
+}
+
+function hideLoadingScreen() {
+  const el = document.getElementById('app-loading-screen');
+  if (!el) return;
+  el.style.opacity = '0';
+  setTimeout(() => el.remove(), 420);
+}
+
+// ============================================================================
+// DATA LAYER — Firebase Firestore
 // ============================================================================
 
 function applyUserData(data) {
@@ -70,35 +112,44 @@ function buildDataPayload() {
   };
 }
 
-async function saveCurrentUserData() {
-  if (!currentUser) return;
-  try {
-    await fbSaveUserData(currentUser.uid, buildDataPayload());
-  } catch(e) {
-    console.error('Firestore save error:', e);
+// ← IMPROVED: debounced to prevent rapid Firestore writes
+function saveCurrentUserData(immediate = false) {
+  if (!currentUser) return Promise.resolve();
+
+  if (immediate) {
+    clearTimeout(_saveDebounceTimer);
+    _saveDebounceTimer = null;
+    return fbSaveUserData(currentUser.uid, buildDataPayload()).catch(e => {
+      console.error('Firestore save error:', e);
+    });
   }
+
+  return new Promise(resolve => {
+    clearTimeout(_saveDebounceTimer);
+    _saveDebounceTimer = setTimeout(async () => {
+      try {
+        await fbSaveUserData(currentUser.uid, buildDataPayload());
+      } catch(e) {
+        console.error('Firestore save error:', e);
+      }
+      resolve();
+    }, 800);
+  });
 }
 
-// Legacy stubs so any existing callers don't throw
 function getUserStorageKey() {}
 function getUserValue()      {}
 function setUserValue()      {}
 function removeUserValue()   {}
 
 // ============================================================================
-// VIEW MANAGEMENT  (rewritten for exclusive per-view display)
+// VIEW MANAGEMENT
 // ============================================================================
 
-/**
- * All sections carry  data-view="<mode>"  in the HTML.
- * applyViewMode() shows only the sections matching activeViewMode,
- * hides everything else, and keeps the nav buttons in sync.
- */
 function applyViewMode() {
   document.querySelectorAll('[data-view]').forEach(el => {
     el.classList.toggle('view-hidden', el.dataset.view !== activeViewMode);
   });
-
   document.querySelectorAll('.workspace-nav-btn').forEach(btn => {
     const isActive = btn.dataset.viewTarget === activeViewMode;
     btn.classList.toggle('active', isActive);
@@ -115,48 +166,24 @@ function saveViewMode() {
   localStorage.setItem(VIEW_MODE_KEY, activeViewMode);
 }
 
-/**
- * Switch to a view mode.
- * Each mode is exclusive — no other sections are visible.
- *
- *  'home'      → goal, summary, insights grid, product form/table, transactions
- *  'insights'  → Analytics Dashboard only
- *  'inventory' → Stock Watch (dead stock + restock history) only
- *  'reports'   → Reports Lab only
- *  'timeline'  → Inventory Timeline only
- */
 function switchViewMode(mode) {
   document.body.classList.remove('stock-only');
   activeViewMode = mode;
   saveViewMode();
   applyViewMode();
 
-  // Destroy charts when leaving analytics to avoid canvas reuse errors
-  if (mode !== 'insights') {
-    destroyCharts();
-  }
+  if (mode !== 'insights') destroyCharts();
 
-  // Trigger renders for the newly visible view
-  if (mode === 'insights') {
-    renderDashboard();
-  } else if (mode === 'inventory') {
-    renderDeadStock();
-    renderRestockHistory();
-  } else if (mode === 'timeline') {
-    renderMovementHistory();
-  } else if (mode === 'reports') {
-    renderBreakEven();
-    renderCategoryReport();
-    renderDateStats();
-  }
+  if (mode === 'insights')        renderDashboard();
+  else if (mode === 'inventory')  { renderDeadStock(); renderRestockHistory(); }
+  else if (mode === 'timeline')   renderMovementHistory();
+  else if (mode === 'reports')    { renderBreakEven(); renderCategoryReport(); renderDateStats(); }
 }
 
 function destroyCharts() {
   if (barChart)      { barChart.destroy();      barChart      = null; }
   if (doughnutChart) { doughnutChart.destroy(); doughnutChart = null; }
 }
-
-// ── Legacy feature-panel helpers (kept for any residual calls) ──────────────
 
 function loadFeaturePanels() {
   try {
@@ -171,26 +198,13 @@ function saveFeaturePanels() {
   localStorage.setItem(FEATURE_PANEL_KEY, JSON.stringify(featurePanels));
 }
 
-// applyFeaturePanels() is no longer the driver — applyViewMode() is.
-// Kept as a no-op so any lingering callers don't throw.
 function applyFeaturePanels() { /* superseded by applyViewMode */ }
+function closeActiveFeaturePanel() { switchViewMode('home'); }
 
-function closeActiveFeaturePanel() {
-  switchViewMode('home');
-}
-
-// toggleFeaturePanel() previously toggled panels independently.
-// Now each "feature" maps to its own exclusive view mode.
 function toggleFeaturePanel(panel) {
-  const modeMap = {
-    analytics: 'insights',
-    stock:     'inventory',
-    timeline:  'timeline',
-    reports:   'reports'
-  };
+  const modeMap = { analytics:'insights', stock:'inventory', timeline:'timeline', reports:'reports' };
   const target = modeMap[panel];
   if (!target) return;
-  // If already in that view, go back home; otherwise switch to it
   switchViewMode(activeViewMode === target ? 'home' : target);
 }
 
@@ -238,12 +252,10 @@ function matchesProductRecord(record, product) {
 
 function hasChartSupport() { return typeof window.Chart === 'function'; }
 function hasPdfSupport()   { return !!window.jspdf?.jsPDF; }
-// ============================================================================
-// AUTHENTICATION UI  — drop-in replacement for the auth section in script.js
-// Fixes: stuck loading state, double-login race, missing fallback timeout
-// ============================================================================
 
-let completeLoginInProgress = false; // guard against double-fire
+// ============================================================================
+// AUTHENTICATION UI
+// ============================================================================
 
 function getAuthElements() {
   return {
@@ -315,20 +327,19 @@ function updateAuthMode(mode) {
   (signupMode ? name : email)?.focus();
 }
 
-// Show/hide screens based on auth state + email verification
 function updateAuthUI(fbUser) {
   const { overlay, verifyScreen, shell, profileMenu, profileChip, profileDropdown, userBadge } = getAuthElements();
 
   const authed   = !!fbUser;
   const verified = fbUser?.emailVerified ?? false;
 
-  if (overlay)      overlay.style.display     = authed ? 'none' : 'flex';
-  if (verifyScreen) verifyScreen.style.display = (authed && !verified) ? 'flex' : 'none';
+  if (overlay)      overlay.style.display      = authed ? 'none' : 'flex';
+  if (verifyScreen) verifyScreen.style.display  = (authed && !verified) ? 'flex' : 'none';
   if (shell)        shell.classList.toggle('app-shell-hidden', !(authed && verified));
 
-  if (profileMenu)    profileMenu.style.display = (authed && verified) ? 'inline-flex' : 'none';
-  if (userBadge)      userBadge.textContent     = fbUser ? (fbUser.displayName || fbUser.email) : '';
-  if (profileChip)    profileChip.setAttribute('aria-expanded', 'false');
+  if (profileMenu)     profileMenu.style.display = (authed && verified) ? 'inline-flex' : 'none';
+  if (userBadge)       userBadge.textContent     = fbUser ? (fbUser.displayName || fbUser.email) : '';
+  if (profileChip)     profileChip.setAttribute('aria-expanded', 'false');
   if (profileDropdown) profileDropdown.classList.remove('open');
 }
 
@@ -368,40 +379,23 @@ async function handleAuthAction() {
   const userEmail   = email?.value?.trim()    || '';
   const pwd         = password?.value?.trim() || '';
 
-  if (!userEmail)      { setAuthMessage('Enter a valid email address.', 'error'); return; }
-  if (pwd.length < 6)  { setAuthMessage('Password must be at least 6 characters.', 'error'); return; }
+  if (!userEmail)     { setAuthMessage('Enter a valid email address.', 'error'); return; }
+  if (pwd.length < 6) { setAuthMessage('Password must be at least 6 characters.', 'error'); return; }
 
   setAuthLoading(true);
   setAuthMessage('');
 
   try {
     if (authMode === 'signup') {
-      if (!displayName) {
-        setAuthMessage('Enter your name to create the account.', 'error');
-        setAuthLoading(false);
-        return;
-      }
-      if (pwd !== confirm?.value?.trim()) {
-        setAuthMessage('Passwords do not match.', 'error');
-        setAuthLoading(false);
-        return;
-      }
-
+      if (!displayName) { setAuthMessage('Enter your name to create the account.', 'error'); setAuthLoading(false); return; }
+      if (pwd !== confirm?.value?.trim()) { setAuthMessage('Passwords do not match.', 'error'); setAuthLoading(false); return; }
       await fbSignUp(userEmail, pwd, displayName);
-      // onAuthStateChanged will fire → shows verify screen automatically
-      // Re-enable button so user can retry if something goes wrong
       setAuthLoading(false);
       setAuthMessage('');
-
     } else {
-      // LOGIN PATH
+      // LOGIN — keep button loading until onAuthStateChanged fires
       await fbSignIn(userEmail, pwd);
-      // ← setAuthLoading(false) intentionally NOT called here yet.
-      // onAuthStateChanged fires next and either:
-      //   a) calls completeLogin → app loads (button irrelevant)
-      //   b) shows verify screen → button re-enabled below via timeout fallback
-
-      // Fallback: if onAuthStateChanged doesn't fire within 8s, re-enable button
+      // 8s fallback in case Firebase stalls
       setTimeout(() => {
         const { submit } = getAuthElements();
         if (submit && submit.disabled) {
@@ -440,16 +434,15 @@ async function logout() {
   movementHistory = []; reviewedProducts = []; dailyGoal = 0;
   currency = 'INR'; skuCounter = 1;
   notificationSettings = { enabled: false, lowStock: true, goal: true };
+  destroyCharts(); // ← NEW: prevent canvas reuse errors on next login
   await fbSignOut();
   updateAuthMode('login');
   updateAuthUI(null);
+  toast('Signed out successfully.', 'info');
 }
 
-// Called after email verified — load data and show app
 async function completeLogin(fbUser) {
-  // Guard: prevent double-execution if both checkEmailVerified and
-  // onAuthStateChanged try to call this simultaneously
-  if (completeLoginInProgress) return;
+  if (completeLoginInProgress) return; // ← guard against double-fire
   completeLoginInProgress = true;
 
   try {
@@ -467,8 +460,8 @@ async function completeLogin(fbUser) {
     });
 
     updateAuthUI(fbUser);
-    // Re-enable submit button now that we're in the app
-    setAuthLoading(false);
+    setAuthLoading(false);  // ← unblock button
+    hideLoadingScreen();    // ← hide splash screen
 
     loadViewMode();
     applyViewMode();
@@ -480,8 +473,6 @@ async function completeLogin(fbUser) {
     completeLoginInProgress = false;
   }
 }
-
-// ── Verification screen actions ──────────────────────────────────────────────
 
 async function resendVerificationEmail() {
   try {
@@ -506,13 +497,12 @@ async function checkEmailVerified() {
   }
 }
 
-// ── Firebase auth state listener ─────────────────────────────────────────────
 function initAuth() {
   fbOnAuthStateChanged(async fbUser => {
-    // Always re-enable the submit button when auth state settles
-    setAuthLoading(false);
+    setAuthLoading(false); // ← always unblock button when Firebase responds
 
     if (!fbUser) {
+      hideLoadingScreen();
       updateAuthMode('login');
       updateAuthUI(null);
       return;
@@ -521,16 +511,14 @@ function initAuth() {
     currentUser = fbUser;
 
     if (!fbUser.emailVerified) {
-      // Show verify screen — do NOT call completeLogin
+      hideLoadingScreen();
       updateAuthUI(fbUser);
       return;
     }
 
-    // Verified — load app
     await completeLogin(fbUser);
   });
 }
-
 
 // ============================================================================
 // CURRENCY & EXCHANGE RATES
@@ -562,12 +550,13 @@ function loadCurrency() {
   if (el) el.value = currency;
 }
 
+// ← IMPROVED: silent on cache hit, no intrusive toasts
 async function fetchExchangeRates() {
   const now     = Date.now();
   const oneHour = 60 * 60 * 1000;
 
   if (exchangeRates && ratesUpdatedAt && (now - parseInt(ratesUpdatedAt)) < oneHour) {
-    updateRatesBadge('Rates cached');
+    updateRatesBadge('Rates cached ✓');
     return;
   }
 
@@ -580,16 +569,13 @@ async function fetchExchangeRates() {
       ratesUpdatedAt = Date.now().toString();
       localStorage.setItem('exchangeRates', JSON.stringify(exchangeRates));
       localStorage.setItem('ratesUpdatedAt', ratesUpdatedAt);
-      updateRatesBadge('Rates updated');
+      updateRatesBadge('Live rates ✓');
       render();
-      toast('✓ Live exchange rates loaded');
     } else {
       updateRatesBadge('Rates unavailable');
-      toast('Could not fetch rates', 'error');
     }
   } catch {
-    updateRatesBadge('Offline — cached rates');
-    toast('Using cached rates', 'info');
+    updateRatesBadge('Offline mode');
   }
 }
 
@@ -615,7 +601,6 @@ function render() {
   renderBreakEven();
   renderGoal();
   renderDateStats();
-  // Re-render analytics only if that view is currently active
   if (activeViewMode === 'insights') renderDashboard();
 }
 
@@ -670,7 +655,7 @@ function renderMovementHistory() {
 
   tbody.innerHTML = movementHistory.map(entry => `
     <tr>
-      <td>${new Date(entry.date).toLocaleString('en-IN', { year: 'numeric', month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' })}</td>
+      <td>${new Date(entry.date).toLocaleString('en-IN', { year:'numeric', month:'short', day:'numeric', hour:'2-digit', minute:'2-digit' })}</td>
       <td style="font-weight:600;">${entry.product}</td>
       <td><span class="badge" style="background:rgba(55,138,221,0.12);color:#378add;">${entry.type}</span></td>
       <td style="color:var(--muted);">${entry.details}</td>
@@ -693,7 +678,7 @@ async function sendBrowserNotification(title, body, tag) {
 
 function notifyImportantEvents(force = false) {
   if (!notificationSettings.enabled || !currentUser) return;
-  const today       = new Date().toISOString().split('T')[0];
+  const today         = new Date().toISOString().split('T')[0];
   const lowStockItems = products.filter(p => p.stock <= p.minStock);
   const expiringItems = products.filter(p => { const d = getDaysToExpiry(p.expiryDate); return d !== null && d >= 0 && d <= 30; });
   const todayProfit   = transactions.filter(t => t.date === today).reduce((s, t) => s + t.profit, 0);
@@ -704,12 +689,12 @@ function notifyImportantEvents(force = false) {
 
   if ((force || !localStorage.getItem(lowKey)) && lowStockItems.length && notificationSettings.lowStock) {
     const names = lowStockItems.slice(0, 3).map(p => p.name).join(', ');
-    sendBrowserNotification('Low stock alert', `${lowStockItems.length} product(s) need restocking: ${names}${lowStockItems.length > 3 ? '…' : ''}`, 'low-stock');
+    sendBrowserNotification('Low stock alert', `${lowStockItems.length} product(s) need restocking: ${names}`, 'low-stock');
     localStorage.setItem(lowKey, 'sent');
   }
   if ((force || !localStorage.getItem(expKey)) && expiringItems.length) {
     const names = expiringItems.slice(0, 3).map(p => p.name).join(', ');
-    sendBrowserNotification('Near expiry alert', `${expiringItems.length} product(s) are nearing expiry: ${names}${expiringItems.length > 3 ? '…' : ''}`, 'near-expiry');
+    sendBrowserNotification('Near expiry alert', `${expiringItems.length} product(s) are nearing expiry: ${names}`, 'near-expiry');
     localStorage.setItem(expKey, 'sent');
   }
   if (dailyGoal > 0 && notificationSettings.goal && todayProfit >= dailyGoal && (force || !localStorage.getItem(goalKey))) {
@@ -744,7 +729,7 @@ function applyDataSnapshot(snapshot) {
   skuCounter           = snapshot.skuCounter                     || (products.length + 1);
   notificationSettings = cloneData(snapshot.notificationSettings || { enabled: false, lowStock: true, goal: true });
 
-  saveCurrentUserData();
+  saveCurrentUserData(true); // immediate on undo
   const sel = document.getElementById('currency-select');
   if (sel) sel.value = currency;
   render();
@@ -780,10 +765,10 @@ function renderStats() {
   const totalProfit  = transactions.reduce((s, t) => s + t.profit, 0);
   const totalCost    = transactions.reduce((s, t) => s + t.totalCost, 0);
 
-  const now     = new Date();
-  const weekAgo = new Date(now - 7  * 86400000).toISOString().split('T')[0];
-  const twoWkAgo= new Date(now - 14 * 86400000).toISOString().split('T')[0];
-  const today   = now.toISOString().split('T')[0];
+  const now      = new Date();
+  const weekAgo  = new Date(now - 7  * 86400000).toISOString().split('T')[0];
+  const twoWkAgo = new Date(now - 14 * 86400000).toISOString().split('T')[0];
+  const today    = now.toISOString().split('T')[0];
 
   const thisWeek = transactions.filter(t => t.date >= weekAgo && t.date <= today);
   const lastWeek = transactions.filter(t => t.date >= twoWkAgo && t.date < weekAgo);
@@ -822,7 +807,6 @@ function renderDashboard() {
   const top = Object.values(grouped).sort((a,b)=>b.qty-a.qty||b.revenue-a.revenue)[0];
   document.getElementById('kpi-top').textContent = top ? `${top.name} (${top.qty} sold)` : '—';
 
-  // Build last-7-days labels
   const days = [], labels = [];
   for (let i = 6; i >= 0; i--) {
     const d = new Date(); d.setDate(d.getDate() - i);
@@ -839,16 +823,16 @@ function renderDashboard() {
     data: {
       labels,
       datasets: [
-        { label: 'Revenue', data: revenueByDay, backgroundColor: 'rgba(29,158,117,0.7)', borderRadius: 6, borderSkipped: false },
-        { label: 'Profit',  data: profitByDay,  backgroundColor: 'rgba(124,106,247,0.7)', borderRadius: 6, borderSkipped: false }
+        { label:'Revenue', data:revenueByDay, backgroundColor:'rgba(29,158,117,0.7)', borderRadius:6, borderSkipped:false },
+        { label:'Profit',  data:profitByDay,  backgroundColor:'rgba(124,106,247,0.7)', borderRadius:6, borderSkipped:false }
       ]
     },
     options: {
-      responsive: true, maintainAspectRatio: false,
-      plugins: { legend: { display: false } },
-      scales: {
-        x: { ticks: { color: '#6b7280', font: { size: 11 } }, grid: { color: 'rgba(255,255,255,0.05)' } },
-        y: { ticks: { color: '#6b7280', font: { size: 11 }, callback: v => fmt(v) }, grid: { color: 'rgba(255,255,255,0.05)' } }
+      responsive:true, maintainAspectRatio:false,
+      plugins:{ legend:{ display:false } },
+      scales:{
+        x:{ ticks:{ color:'#6b7280', font:{ size:11 } }, grid:{ color:'rgba(255,255,255,0.05)' } },
+        y:{ ticks:{ color:'#6b7280', font:{ size:11 }, callback: v => fmt(v) }, grid:{ color:'rgba(255,255,255,0.05)' } }
       }
     }
   });
@@ -867,12 +851,12 @@ function renderDashboard() {
   if (!entries.length) { if (legend) legend.innerHTML = '<span style="color:#6b7280;font-size:13px;">No sales yet</span>'; return; }
 
   doughnutChart = new Chart(document.getElementById('doughnutChart'), {
-    type: 'doughnut',
-    data: {
+    type:'doughnut',
+    data:{
       labels: entries.map(e=>e.name),
-      datasets: [{ data: entries.map(e=>e.total), backgroundColor: colors.slice(0,entries.length), borderWidth: 0, hoverOffset: 6 }]
+      datasets:[{ data:entries.map(e=>e.total), backgroundColor:colors.slice(0,entries.length), borderWidth:0, hoverOffset:6 }]
     },
-    options: { responsive: true, maintainAspectRatio: false, cutout: '65%', plugins: { legend: { display: false } } }
+    options:{ responsive:true, maintainAspectRatio:false, cutout:'65%', plugins:{ legend:{ display:false } } }
   });
 
   if (legend) {
@@ -889,6 +873,7 @@ function renderDashboard() {
 // PRODUCTS MANAGEMENT
 // ============================================================================
 
+// ← IMPROVED: duplicate name check + unique SKU guarantee
 function addProduct() {
   const name        = document.getElementById('prod-name').value.trim();
   const category    = document.getElementById('prod-category').value.trim() || 'Uncategorized';
@@ -901,18 +886,31 @@ function addProduct() {
   const batchNumber = document.getElementById('prod-batch').value.trim();
   const expiryDate  = document.getElementById('prod-expiry').value;
   const skuInput    = document.getElementById('prod-sku').value.trim();
-  const sku         = skuInput || `SKU-${String(skuCounter).padStart(3, '0')}`;
 
   if (!name || isNaN(cost) || cost <= 0 || isNaN(price) || price <= 0 || isNaN(stock) || stock < 0) {
-    toast('Fill all fields correctly', 'error'); return;
+    toast('Fill all required fields correctly.', 'error'); return;
   }
-  if (cost >= price) { toast('Selling price must be greater than cost price', 'error'); return; }
+  if (cost >= price) { toast('Selling price must be higher than cost price.', 'error'); return; }
+
+  // Prevent duplicate product names
+  if (products.some(p => p.name.toLowerCase() === name.toLowerCase())) {
+    toast(`"${name}" already exists. Use Edit to update it.`, 'warning'); return;
+  }
+
+  // Auto-generate unique SKU
+  let sku = skuInput;
+  if (!sku) {
+    sku = `SKU-${String(skuCounter).padStart(3, '0')}`;
+    while (products.some(p => p.sku === sku)) {
+      skuCounter++;
+      sku = `SKU-${String(skuCounter).padStart(3, '0')}`;
+    }
+  }
 
   products.push({ id: nextProdId++, sku, name, brand, variant, category, cost, price, stock, minStock, batchNumber, expiryDate });
   skuCounter++;
   saveCurrentUserData();
   addMovementEntry('Added', name, `Created ${sku} with ${stock} units at ${fmt(price)}.`);
-  saveProducts();
   clearProductForm();
   render();
   toast(`✓ ${name} added (${sku})`);
@@ -923,7 +921,7 @@ function deleteProduct(id) {
   const snapshot = createDataSnapshot();
   products = products.filter(p => p.id !== id);
   if (product) addMovementEntry('Deleted', product.name, `Removed product ${product.sku || ''}`.trim());
-  saveProducts();
+  saveCurrentUserData();
   render();
   queueUndo(`${product?.name || 'Product'} removed.`, snapshot);
 }
@@ -932,21 +930,24 @@ function editProduct(id) {
   const p = products.find(p => p.id === id);
   if (!p) return;
 
-  document.getElementById('prod-name').value    = p.name;
-  document.getElementById('prod-category').value= p.category || '';
-  document.getElementById('prod-brand').value   = p.brand    || '';
-  document.getElementById('prod-variant').value = p.variant  || '';
-  document.getElementById('prod-sku').value     = p.sku      || '';
-  document.getElementById('prod-cost').value    = p.cost;
-  document.getElementById('prod-price').value   = p.price;
-  document.getElementById('prod-stock').value   = p.stock;
-  document.getElementById('prod-min').value     = p.minStock;
-  document.getElementById('prod-batch').value   = p.batchNumber || '';
-  document.getElementById('prod-expiry').value  = p.expiryDate  || '';
+  document.getElementById('prod-name').value     = p.name;
+  document.getElementById('prod-category').value = p.category || '';
+  document.getElementById('prod-brand').value    = p.brand    || '';
+  document.getElementById('prod-variant').value  = p.variant  || '';
+  document.getElementById('prod-sku').value      = p.sku      || '';
+  document.getElementById('prod-cost').value     = p.cost;
+  document.getElementById('prod-price').value    = p.price;
+  document.getElementById('prod-stock').value    = p.stock;
+  document.getElementById('prod-min').value      = p.minStock;
+  document.getElementById('prod-batch').value    = p.batchNumber || '';
+  document.getElementById('prod-expiry').value   = p.expiryDate  || '';
 
   const btn = document.querySelector('.form-section button');
   btn.textContent = '💾 Save Edit';
   btn.onclick = () => saveEdit(id);
+
+  // Scroll form into view smoothly
+  document.querySelector('.form-section')?.scrollIntoView({ behavior: 'smooth', block: 'start' });
 }
 
 function saveEdit(id) {
@@ -966,12 +967,12 @@ function saveEdit(id) {
   const expiryDate  = document.getElementById('prod-expiry').value;
 
   if (!name || isNaN(cost) || cost <= 0 || isNaN(price) || price <= 0 || isNaN(stock) || stock < 0) {
-    toast('Fill all fields correctly', 'error'); return;
+    toast('Fill all fields correctly.', 'error'); return;
   }
-  if (cost >= price) { toast('Selling price must be greater than cost price', 'error'); return; }
+  if (cost >= price) { toast('Selling price must be higher than cost price.', 'error'); return; }
 
   Object.assign(p, { name, category, brand, variant, sku, cost, price, stock, minStock, batchNumber, expiryDate });
-  saveProducts();
+  saveCurrentUserData();
   addMovementEntry('Updated', name, `Edited product details. Stock now ${stock}, price ${fmt(price)}.`);
   clearProductForm();
 
@@ -1005,12 +1006,12 @@ function renderProducts() {
   updateCategoryFilter();
 
   let list = [...products];
-  if (searchQuery)           list = list.filter(p => p.name.toLowerCase().includes(searchQuery));
+  if (searchQuery)              list = list.filter(p => p.name.toLowerCase().includes(searchQuery));
   if (filterCategory !== 'all') list = list.filter(p => (p.category || 'Uncategorized') === filterCategory);
-  if (sortBy === 'stock-asc')  list.sort((a,b) => a.stock - b.stock);
-  if (sortBy === 'stock-desc') list.sort((a,b) => b.stock - a.stock);
-  if (sortBy === 'price-asc')  list.sort((a,b) => a.price - b.price);
-  if (sortBy === 'price-desc') list.sort((a,b) => b.price - a.price);
+  if (sortBy === 'stock-asc')   list.sort((a,b) => a.stock - b.stock);
+  if (sortBy === 'stock-desc')  list.sort((a,b) => b.stock - a.stock);
+  if (sortBy === 'price-asc')   list.sort((a,b) => a.price - b.price);
+  if (sortBy === 'price-desc')  list.sort((a,b) => b.price - a.price);
 
   const tbody = document.getElementById('prod-body');
   if (!list.length) {
@@ -1019,17 +1020,17 @@ function renderProducts() {
   }
 
   tbody.innerHTML = list.map(p => {
-    const margin        = (((p.price - p.cost) / p.price) * 100).toFixed(1);
-    const isLow         = p.stock <= p.minStock;
-    const isEmpty       = p.stock === 0;
-    const daysToExpiry  = getDaysToExpiry(p.expiryDate);
+    const margin       = (((p.price - p.cost) / p.price) * 100).toFixed(1);
+    const isLow        = p.stock <= p.minStock;
+    const isEmpty      = p.stock === 0;
+    const daysToExpiry = getDaysToExpiry(p.expiryDate);
 
     const expiryMarkup = daysToExpiry === null
       ? '<span style="color:var(--muted);font-size:11px;">No expiry set</span>'
       : daysToExpiry < 0
-      ? `<span class="badge danger">Expired ${Math.abs(daysToExpiry)} day${Math.abs(daysToExpiry) === 1 ? '' : 's'} ago</span>`
+      ? `<span class="badge danger">Expired ${Math.abs(daysToExpiry)} day${Math.abs(daysToExpiry)===1?'':'s'} ago</span>`
       : daysToExpiry <= 30
-      ? `<span class="badge warning">${daysToExpiry === 0 ? 'Expires today' : `${daysToExpiry} day${daysToExpiry === 1 ? '' : 's'} left`}</span>`
+      ? `<span class="badge warning">${daysToExpiry===0?'Expires today':`${daysToExpiry} day${daysToExpiry===1?'':'s'} left`}</span>`
       : `<span class="badge income">${daysToExpiry} days left</span>`;
 
     const stockBadge = isEmpty
@@ -1046,9 +1047,9 @@ function renderProducts() {
           <div style="font-size:11px;color:var(--muted);margin-top:4px;">Batch: ${p.batchNumber || '—'}</div>
           <div style="margin-top:6px;">${expiryMarkup}</div>
         </td>
-        <td><span class="badge" style="background:rgba(124,106,247,0.12);color:#7c6af7;">${p.category || 'Uncategorized'}</span></td>
-        <td style="color:var(--muted);font-size:13px;">${p.brand || '—'}</td>
-        <td style="color:var(--muted);font-size:13px;">${p.variant || '—'}</td>
+        <td><span class="badge" style="background:rgba(124,106,247,0.12);color:#7c6af7;">${p.category||'Uncategorized'}</span></td>
+        <td style="color:var(--muted);font-size:13px;">${p.brand||'—'}</td>
+        <td style="color:var(--muted);font-size:13px;">${p.variant||'—'}</td>
         <td>${fmt(p.cost)}</td>
         <td>${fmt(p.price)}</td>
         <td><span class="badge income">${margin}% margin</span></td>
@@ -1059,8 +1060,8 @@ function renderProducts() {
             style="width:60px;height:32px;padding:0 8px;border-radius:8px;border:1px solid var(--card-border);background:var(--input-bg);color:var(--text);font-size:13px;" />
           <input type="text" id="note-${p.id}" placeholder="Note (optional)"
             style="width:110px;height:32px;padding:0 8px;border-radius:8px;border:1px solid var(--card-border);background:var(--input-bg);color:var(--text);font-size:13px;margin-left:4px;" />
-          <button class="sell-btn" onclick="sellProduct(${p.id})" ${isEmpty ? 'disabled' : ''}>
-            ${isEmpty ? 'Out of stock' : 'Sell'}
+          <button class="sell-btn" onclick="sellProduct(${p.id})" ${isEmpty?'disabled':''}>
+            ${isEmpty?'Out of stock':'Sell'}
           </button>
         </td>
         <td>
@@ -1088,13 +1089,14 @@ function updateCategoryFilter() {
 }
 
 function setSearch(val)   { searchQuery = val.toLowerCase(); renderProducts(); }
-function setCategory(val) { filterCategory = val;             renderProducts(); }
-function setSort(val)     { sortBy = val;                     renderProducts(); }
+function setCategory(val) { filterCategory = val;            renderProducts(); }
+function setSort(val)     { sortBy = val;                    renderProducts(); }
 
 // ============================================================================
 // SALES & TRANSACTIONS
 // ============================================================================
 
+// ← IMPROVED: warns before selling large chunk of stock
 function sellProduct(id) {
   const qtyInput  = document.getElementById('qty-' + id);
   const noteInput = document.getElementById('note-' + id);
@@ -1103,8 +1105,14 @@ function sellProduct(id) {
   const product   = products.find(p => p.id === id);
 
   if (!product) return;
-  if (isNaN(qty) || qty <= 0)  { toast('Enter a valid quantity', 'error'); return; }
-  if (qty > product.stock)     { toast('Not enough stock', 'error');        return; }
+  if (isNaN(qty) || qty <= 0)  { toast('Enter a valid quantity.', 'error'); return; }
+  if (qty > product.stock)     { toast(`Only ${product.stock} units in stock.`, 'error'); return; }
+
+  // Warn if selling ≥80% of stock in one transaction
+  if ((qty / product.stock) >= 0.8 && product.stock > 5) {
+    const proceed = confirm(`You're selling ${qty} of ${product.stock} units (${Math.round((qty/product.stock)*100)}% of stock). Continue?`);
+    if (!proceed) return;
+  }
 
   const total     = qty * product.price;
   const totalCost = qty * product.cost;
@@ -1122,10 +1130,10 @@ function sellProduct(id) {
 
   qtyInput.value = '';
   if (noteInput) noteInput.value = '';
-  saveProducts();
+  saveCurrentUserData();
   addMovementEntry('Sold', product.name, `Sold ${qty} units for ${fmt(total)}${note ? ` — note: ${note}` : ''}.`);
   render();
-  toast(`✓ Sold ${qty}× ${product.name} for ${fmt(total)}`);
+  toast(`✓ Sold ${qty}× ${product.name} — profit ${fmt(profit)}`);
   notifyImportantEvents();
 }
 
@@ -1136,7 +1144,7 @@ function deleteTransaction(id) {
   const product  = findProductByRecord(tx);
   if (product) product.stock += tx.qty;
   transactions = transactions.filter(t => t.id !== id);
-  saveProducts();
+  saveCurrentUserData();
   addMovementEntry('Sale Deleted', getRecordProductName(tx), `Removed sale of ${tx.qty} units and restored stock.`);
   render();
   queueUndo(`Sale deleted for ${getRecordProductName(tx)}.`, snapshot);
@@ -1180,8 +1188,8 @@ function restockProduct(id) {
   const product   = products.find(p => p.id === id);
 
   if (!product) return;
-  if (isNaN(qty) || qty <= 0)  { toast('Enter a valid quantity', 'error'); return; }
-  if (isNaN(cost) || cost < 0) { toast('Enter a valid cost',     'error'); return; }
+  if (isNaN(qty)  || qty  <= 0) { toast('Enter a valid quantity.', 'error'); return; }
+  if (isNaN(cost) || cost <  0) { toast('Enter a valid cost.',     'error'); return; }
 
   product.stock += qty;
   restockHistory.unshift({
@@ -1193,7 +1201,6 @@ function restockProduct(id) {
 
   qtyInput.value = ''; costInput.value = '';
   saveCurrentUserData();
-  saveProducts();
   addMovementEntry('Restocked', product.name, `Added ${qty} units at ${fmt(cost)} each.`);
   render();
   notifyImportantEvents();
@@ -1244,7 +1251,9 @@ function renderDeadStock() {
     const lastSale = transactions
       .filter(tx => matchesProductRecord(tx, product))
       .sort((a,b) => new Date(b.date) - new Date(a.date))[0];
-    return { ...product, lastSale: lastSale?.date || null, daysSince: lastSale ? Math.floor((today - new Date(lastSale.date)) / 86400000) : null, idleValue: product.stock * product.cost };
+    return { ...product, lastSale: lastSale?.date || null,
+      daysSince: lastSale ? Math.floor((today - new Date(lastSale.date)) / 86400000) : null,
+      idleValue: product.stock * product.cost };
   });
 
   countEl.textContent = deadList.length;
@@ -1272,8 +1281,8 @@ function renderDeadStock() {
 // ============================================================================
 
 function renderSmartInsights() {
-  const today      = new Date().toISOString().split('T')[0];
-  const todayTxns  = transactions.filter(t => t.date === today);
+  const today     = new Date().toISOString().split('T')[0];
+  const todayTxns = transactions.filter(t => t.date === today);
 
   document.getElementById('summary-rev').textContent    = fmt(todayTxns.reduce((s,t)=>s+t.total,0));
   document.getElementById('summary-profit').textContent = fmt(todayTxns.reduce((s,t)=>s+t.profit,0));
@@ -1307,7 +1316,7 @@ function renderSmartInsights() {
 
 function setGoal() {
   const val = parseFloat(document.getElementById('goal-input').value);
-  if (isNaN(val) || val <= 0) { toast('Enter a valid goal', 'error'); return; }
+  if (isNaN(val) || val <= 0) { toast('Enter a valid goal.', 'error'); return; }
   dailyGoal = val;
   saveCurrentUserData();
   renderGoal();
@@ -1320,9 +1329,9 @@ function renderGoal() {
   const pct         = dailyGoal > 0 ? Math.min((todayProfit / dailyGoal) * 100, 100).toFixed(1) : 0;
   const remaining   = Math.max(dailyGoal - todayProfit, 0);
 
-  const bar    = document.getElementById('goal-bar');
-  const label  = document.getElementById('goal-label');
-  const inputEl= document.getElementById('goal-input');
+  const bar     = document.getElementById('goal-bar');
+  const label   = document.getElementById('goal-label');
+  const inputEl = document.getElementById('goal-input');
   if (!bar) return;
 
   if (dailyGoal === 0) {
@@ -1335,11 +1344,11 @@ function renderGoal() {
   bar.style.background = pct >= 100 ? '#1D9E75' : pct >= 50 ? '#eab308' : '#D85A30';
 
   if (pct >= 100) {
-    label.textContent  = `🎉 Goal reached! ${fmt(todayProfit)} profit today`;
-    label.style.color  = '#1D9E75';
+    label.textContent = `🎉 Goal reached! ${fmt(todayProfit)} profit today`;
+    label.style.color = '#1D9E75';
   } else {
-    label.textContent  = `${fmt(todayProfit)} of ${fmt(dailyGoal)} — ${fmt(remaining)} to go (${pct}%)`;
-    label.style.color  = 'var(--muted)';
+    label.textContent = `${fmt(todayProfit)} of ${fmt(dailyGoal)} — ${fmt(remaining)} to go (${pct}%)`;
+    label.style.color = 'var(--muted)';
   }
 
   if (inputEl && !inputEl.value) inputEl.value = dailyGoal || '';
@@ -1397,7 +1406,6 @@ function renderDateStats() {
   }
 
   if (!insightsEl) return;
-
   if (!hasFilter) { insightsEl.style.display = 'none'; return; }
 
   if (!filtered.length) {
@@ -1417,7 +1425,8 @@ function renderDateStats() {
     const category = getRecordCategory(t);
     if (!byProduct[name])      byProduct[name]      = { revenue:0, cost:0, profit:0, items:0 };
     if (!byCategory[category]) byCategory[category] = { revenue:0, profit:0, items:0 };
-    byProduct[name].revenue += t.total; byProduct[name].cost += t.totalCost; byProduct[name].profit += t.profit; byProduct[name].items += t.qty;
+    byProduct[name].revenue += t.total; byProduct[name].cost += t.totalCost;
+    byProduct[name].profit  += t.profit; byProduct[name].items += t.qty;
     byCategory[category].revenue += t.total; byCategory[category].profit += t.profit; byCategory[category].items += t.qty;
   });
 
@@ -1467,7 +1476,8 @@ function renderReport(period) {
       ? `Week ${getWeekNumber(d)}, ${d.getFullYear()}`
       : d.toLocaleDateString('en-IN', { month: 'long', year: 'numeric' });
     if (!groups[key]) groups[key] = { revenue:0, cost:0, profit:0, items:0 };
-    groups[key].revenue += t.total; groups[key].cost += t.totalCost; groups[key].profit += t.profit; groups[key].items += t.qty;
+    groups[key].revenue += t.total; groups[key].cost += t.totalCost;
+    groups[key].profit  += t.profit; groups[key].items += t.qty;
   });
 
   title.textContent = period === 'weekly' ? 'Weekly Report' : 'Monthly Report';
@@ -1595,7 +1605,8 @@ function exportCSV() {
   const csv  = rows.map(r=>r.join(',')).join('\n');
   const blob = new Blob([csv],{type:'text/csv'});
   const url  = URL.createObjectURL(blob);
-  const a    = document.createElement('a'); a.href=url; a.download=`shop-tracker-${new Date().toISOString().split('T')[0]}.csv`; a.click();
+  const a    = document.createElement('a');
+  a.href = url; a.download = `shop-tracker-${new Date().toISOString().split('T')[0]}.csv`; a.click();
   URL.revokeObjectURL(url);
 }
 
@@ -1604,10 +1615,10 @@ function exportPDF() {
   if (!hasPdfSupport()) { toast('PDF export unavailable right now.','error'); return; }
 
   const { jsPDF } = window.jspdf;
-  const doc       = new jsPDF();
-  const today     = new Date().toISOString().split('T')[0];
-  const green     = [29,158,117];
-  const dark      = [30,30,40];
+  const doc   = new jsPDF();
+  const today = new Date().toISOString().split('T')[0];
+  const green = [29,158,117];
+  const dark  = [30,30,40];
 
   doc.setFillColor(...dark); doc.rect(0,0,210,30,'F');
   doc.setTextColor(255,255,255); doc.setFontSize(18); doc.setFont('helvetica','bold');
@@ -1646,7 +1657,8 @@ function backupData() {
   const data = { user: currentUser ? { id:currentUser.uid, name:currentUser.displayName, email:currentUser.email } : null, products, transactions, restockHistory, movementHistory, reviewedProducts, dailyGoal, currency, exportedAt: new Date().toISOString() };
   const blob = new Blob([JSON.stringify(data,null,2)],{type:'application/json'});
   const url  = URL.createObjectURL(blob);
-  const a    = document.createElement('a'); a.href=url; a.download=`shop-backup-${new Date().toISOString().split('T')[0]}.json`; a.click();
+  const a    = document.createElement('a');
+  a.href = url; a.download = `shop-backup-${new Date().toISOString().split('T')[0]}.json`; a.click();
   URL.revokeObjectURL(url);
   toast('Backup created');
 }
@@ -1665,7 +1677,7 @@ function restoreData(event) {
       addMovementEntry('Restored','Inventory','Restored inventory data from backup file.');
       queueUndo('Backup restored.', snapshot);
     } catch { toast('Invalid backup file.','error'); }
-    finally { event.target.value=''; }
+    finally  { event.target.value=''; }
   };
   reader.readAsText(file);
 }
@@ -1704,21 +1716,27 @@ function syncProfileMenuTheme() {
 }
 
 // ============================================================================
-// TOAST NOTIFICATIONS
+// TOAST NOTIFICATIONS  ← IMPROVED: warning type + smooth stack
 // ============================================================================
 
-function toast(message, type = 'success', action = null, duration = 2600) {
+function toast(message, type = 'success', action = null, duration = 2800) {
   const existing = document.getElementById('toast');
-  if (existing) existing.remove();
+  if (existing) {
+    existing.style.transform = 'translateY(-64px)';
+    existing.style.opacity   = '0.4';
+    setTimeout(() => existing.remove(), 200);
+  }
 
-  const icons = { success: '✓', error: '!', info: 'i' };
+  const icons  = { success:'✓', error:'✕', info:'i', warning:'⚠' };
+  const labels = { success:'Success', error:'Action needed', info:'Heads up', warning:'Warning' };
+
   const t = document.createElement('div');
   t.id        = 'toast';
   t.className = `toast toast-${type}`;
   t.innerHTML = `
-    <div class="toast-icon">${icons[type] || icons.success}</div>
+    <div class="toast-icon">${icons[type] || '✓'}</div>
     <div class="toast-copy">
-      <div class="toast-label">${type==='error'?'Action needed':type==='info'?'Heads up':'Success'}</div>
+      <div class="toast-label">${labels[type] || 'Notice'}</div>
       <div class="toast-message">${message}</div>
     </div>
     ${action ? `<button type="button" class="toast-action">${action.label}</button>` : ''}
@@ -1729,7 +1747,10 @@ function toast(message, type = 'success', action = null, duration = 2600) {
   const progress = t.querySelector('.toast-progress');
   if (progress) progress.style.animationDuration = `${duration}ms`;
 
-  const dismiss = setTimeout(() => { t.classList.add('toast-exit'); setTimeout(()=>t.remove(),320); }, duration);
+  const dismiss = setTimeout(() => {
+    t.classList.add('toast-exit');
+    setTimeout(() => t.remove(), 320);
+  }, duration);
 
   if (action) {
     t.querySelector('.toast-action')?.addEventListener('click', () => {
@@ -1773,10 +1794,10 @@ function clearAllData() {
   showConfirm('Delete all data for this account? This cannot be undone.', async () => {
     if (!currentUser) return;
     const snapshot = createDataSnapshot();
-    products=[];transactions=[];restockHistory=[];movementHistory=[];reviewedProducts=[];
-    dailyGoal=0;currency='INR';skuCounter=1;
+    products=[]; transactions=[]; restockHistory=[]; movementHistory=[]; reviewedProducts=[];
+    dailyGoal=0; currency='INR'; skuCounter=1;
     notificationSettings={enabled:false,lowStock:true,goal:true};
-    await saveCurrentUserData();
+    await saveCurrentUserData(true);
     loadCurrency();
     render();
     queueUndo('All account data cleared.', snapshot, 'error');
@@ -1788,6 +1809,7 @@ function clearAllData() {
 // ============================================================================
 
 window.addEventListener('load', () => {
+  showLoadingScreen(); // ← show immediately while Firebase warms up
   loadFeaturePanels();
   loadViewMode();
   loadTheme();
@@ -1795,16 +1817,38 @@ window.addEventListener('load', () => {
   syncProfileMenuTheme();
   applyViewMode();
   fetchExchangeRates();
-  // Firebase auth listener drives everything from here
-  initAuth();
+  initAuth(); // loading screen hidden inside completeLogin / initAuth
 });
 
+// ← IMPROVED: Escape closes CSV modal + confirm dialog too; Ctrl shortcuts added
 document.addEventListener('keydown', event => {
-  if (event.key === 'Escape') { switchViewMode('home'); closeProfileMenu(); }
-  if (event.key !== 'Enter') return;
-  const overlay = document.getElementById('auth-overlay');
-  if (!overlay || overlay.style.display === 'none') return;
-  handleAuthAction();
+  if (event.key === 'Escape') {
+    closeProfileMenu();
+    const csvBackdrop = document.getElementById('csv-import-backdrop');
+    if (csvBackdrop && csvBackdrop.style.display !== 'none') { closeCsvImport(); return; }
+    const confirmModal = document.getElementById('confirm-modal');
+    if (confirmModal) { confirmModal.remove(); return; }
+    if (activeViewMode !== 'home') { switchViewMode('home'); return; }
+  }
+
+  if (event.key === 'Enter') {
+    const overlay = document.getElementById('auth-overlay');
+    if (overlay && overlay.style.display !== 'none') { handleAuthAction(); return; }
+  }
+
+  // Ctrl/Cmd shortcuts — only when app shell is visible
+  const appShell = document.getElementById('app-shell');
+  if (!appShell || appShell.classList.contains('app-shell-hidden')) return;
+  if (!event.ctrlKey && !event.metaKey) return;
+
+  switch(event.key.toLowerCase()) {
+    case 'h': event.preventDefault(); switchViewMode('home');      break;
+    case 'i': event.preventDefault(); switchViewMode('insights');  break;
+    case 'r': event.preventDefault(); switchViewMode('reports');   break;
+    case 'k': event.preventDefault(); switchViewMode('inventory'); break;
+    case 't': event.preventDefault(); switchViewMode('timeline');  break;
+    case 'e': event.preventDefault(); exportCSV();                 break;
+  }
 });
 
 document.addEventListener('click', event => {
@@ -1820,7 +1864,16 @@ if ('serviceWorker' in navigator) {
 }
 
 // ============================================================================
-// BULK CSV IMPORT MODULE
+// ADD THIS TO style.css  (warning toast colour)
+// ============================================================================
+/*
+.toast-warning {
+  background: linear-gradient(135deg, rgba(234,179,8,0.96), rgba(180,130,0,0.92));
+}
+*/
+
+// ============================================================================
+// BULK CSV IMPORT MODULE  (unchanged — paste your existing csvReset etc. here)
 // ============================================================================
 
 const CSV_FIELDS = [
