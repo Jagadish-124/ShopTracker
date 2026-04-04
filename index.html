@@ -149,6 +149,11 @@
               <span class="profile-dropdown-icon">⎋</span>
               <span>Sign out</span>
             </button>
+            <div class="profile-dropdown-divider"></div>
+            <button type="button" class="profile-dropdown-item danger" id="delete-account-btn" onclick="openDeleteAccountModal()">
+              <span class="profile-dropdown-icon" style="background:rgba(216,90,48,0.15);">🗑</span>
+              <span>Delete account</span>
+            </button>
           </div>
         </div>
         <small id="rates-badge">Rates cached</small>
@@ -713,6 +718,41 @@
         <div class="csv-footer-actions">
           <button class="csv-btn-secondary" onclick="csvReset()">Reset</button>
           <button class="csv-btn-primary" id="csv-next-btn" onclick="csvNextStep()" disabled>Next →</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ====================================================
+       DELETE ACCOUNT MODAL
+       ==================================================== -->
+  <div id="delete-account-modal" class="delete-acct-backdrop" style="display:none;" role="dialog" aria-modal="true" aria-labelledby="delete-acct-title">
+    <div class="delete-acct-card">
+      <div class="delete-acct-icon-wrap">
+        <span class="delete-acct-icon">⚠️</span>
+      </div>
+      <div class="delete-acct-badge">Danger Zone</div>
+      <h2 id="delete-acct-title" class="delete-acct-title">Delete your account?</h2>
+      <p class="delete-acct-sub">
+        This will permanently delete your account and erase
+        <strong>all your products, transactions, and history</strong>.
+        This action <strong>cannot be undone</strong>.
+      </p>
+      <div class="delete-acct-form">
+        <label for="delete-acct-password" class="delete-acct-label">Confirm your password to continue</label>
+        <input
+          type="password"
+          id="delete-acct-password"
+          class="delete-acct-input"
+          placeholder="Enter your password"
+          autocomplete="current-password"
+        />
+        <div id="delete-acct-message" class="delete-acct-message"></div>
+        <div class="delete-acct-actions">
+          <button type="button" class="delete-acct-cancel" id="delete-acct-cancel-btn" onclick="closeDeleteAccountModal()">Cancel</button>
+          <button type="button" class="delete-acct-confirm" id="delete-acct-confirm-btn" onclick="confirmDeleteAccount()">
+            <span id="delete-acct-btn-label">Delete my account</span>
+          </button>
         </div>
       </div>
     </div>

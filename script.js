@@ -393,16 +393,13 @@ async function handleAuthAction() {
       setAuthLoading(false);
       setAuthMessage('');
     } else {
-      // LOGIN — keep button loading until onAuthStateChanged fires
+      // LOGIN — unblock button after sign-in; onAuthStateChanged handles the rest
       await fbSignIn(userEmail, pwd);
-      // 8s fallback in case Firebase stalls
+      // Unblock the button quickly — onAuthStateChanged will take over
       setTimeout(() => {
         const { submit } = getAuthElements();
-        if (submit && submit.disabled) {
-          setAuthLoading(false);
-          setAuthMessage('Taking longer than expected — please try again.', 'info');
-        }
-      }, 8000);
+        if (submit && submit.disabled) setAuthLoading(false);
+      }, 3000);
     }
   } catch(e) {
     setAuthMessage(friendlyFirebaseError(e), 'error');
@@ -441,6 +438,84 @@ async function logout() {
   toast('Signed out successfully.', 'info');
 }
 
+// ============================================================================
+// DELETE ACCOUNT
+// ============================================================================
+
+function openDeleteAccountModal() {
+  closeProfileMenu();
+  const modal = document.getElementById('delete-account-modal');
+  const pwdInput = document.getElementById('delete-acct-password');
+  const msgEl = document.getElementById('delete-acct-message');
+  if (!modal) return;
+  if (pwdInput) pwdInput.value = '';
+  if (msgEl) { msgEl.textContent = ''; msgEl.className = 'delete-acct-message'; }
+  modal.style.display = 'flex';
+  requestAnimationFrame(() => modal.classList.add('open'));
+  setTimeout(() => pwdInput?.focus(), 120);
+}
+
+function closeDeleteAccountModal() {
+  const modal = document.getElementById('delete-account-modal');
+  if (!modal) return;
+  modal.classList.remove('open');
+  setTimeout(() => { modal.style.display = 'none'; }, 280);
+}
+
+async function confirmDeleteAccount() {
+  const pwdInput = document.getElementById('delete-acct-password');
+  const msgEl    = document.getElementById('delete-acct-message');
+  const btnLabel = document.getElementById('delete-acct-btn-label');
+  const confirmBtn = document.getElementById('delete-acct-confirm-btn');
+  const cancelBtn  = document.getElementById('delete-acct-cancel-btn');
+
+  const pwd = pwdInput?.value?.trim() || '';
+  if (!pwd) {
+    if (msgEl) { msgEl.textContent = 'Please enter your password.'; msgEl.className = 'delete-acct-message error'; }
+    pwdInput?.focus();
+    return;
+  }
+
+  // Lock UI
+  if (confirmBtn) confirmBtn.disabled = true;
+  if (cancelBtn)  cancelBtn.disabled  = true;
+  if (btnLabel)   btnLabel.textContent = 'Deleting…';
+  if (msgEl)      { msgEl.textContent = ''; msgEl.className = 'delete-acct-message'; }
+
+  try {
+    await fbDeleteAccount(pwd);
+
+    // Clean up local state
+    completeLoginInProgress = false;
+    if (firestoreUnsub) { firestoreUnsub(); firestoreUnsub = null; }
+    currentUser = null;
+    products = []; transactions = []; restockHistory = [];
+    movementHistory = []; reviewedProducts = []; dailyGoal = 0;
+    currency = 'INR'; skuCounter = 1;
+    notificationSettings = { enabled: false, lowStock: true, goal: true };
+    destroyCharts();
+
+    closeDeleteAccountModal();
+    updateAuthMode('login');
+    updateAuthUI(null);
+    toast('Your account has been permanently deleted.', 'info');
+  } catch(e) {
+    const friendlyMap = {
+      'auth/wrong-password':        'Incorrect password. Please try again.',
+      'auth/invalid-credential':    'Incorrect password. Please try again.',
+      'auth/too-many-requests':     'Too many attempts. Please wait a moment.',
+      'auth/network-request-failed':'Network error. Check your connection.',
+      'auth/requires-recent-login': 'Session expired. Please log out and back in first.',
+    };
+    const msg = friendlyMap[e.code] || e.message || 'Could not delete account. Please try again.';
+    if (msgEl) { msgEl.textContent = msg; msgEl.className = 'delete-acct-message error'; }
+    if (confirmBtn) confirmBtn.disabled = false;
+    if (cancelBtn)  cancelBtn.disabled  = false;
+    if (btnLabel)   btnLabel.textContent = 'Delete my account';
+    pwdInput?.focus();
+  }
+}
+
 async function completeLogin(fbUser) {
   if (completeLoginInProgress) return; // ← guard against double-fire
   completeLoginInProgress = true;
@@ -448,9 +523,22 @@ async function completeLogin(fbUser) {
   try {
     currentUser = fbUser;
 
-    const data = await fbLoadUserData(fbUser.uid);
+    // ← Unblock UI immediately — don't wait for Firestore data
+    updateAuthUI(fbUser);
+    setAuthLoading(false);
+    hideLoadingScreen();
+
+    loadViewMode();
+    applyViewMode();
+    render();
+
+    // Load data with a timeout guard so a slow/offline Firestore doesn't hang
+    const dataPromise = fbLoadUserData(fbUser.uid);
+    const timeoutPromise = new Promise(resolve => setTimeout(() => resolve(null), 8000));
+    const data = await Promise.race([dataPromise, timeoutPromise]);
     applyUserData(data);
     loadCurrency();
+    render();
 
     if (firestoreUnsub) firestoreUnsub();
     firestoreUnsub = fbSubscribeUserData(fbUser.uid, remoteData => {
@@ -459,16 +547,11 @@ async function completeLogin(fbUser) {
       render();
     });
 
-    updateAuthUI(fbUser);
-    setAuthLoading(false);  // ← unblock button
-    hideLoadingScreen();    // ← hide splash screen
-
-    loadViewMode();
-    applyViewMode();
-    render();
     if (activeViewMode === 'insights') renderDashboard();
     notifyImportantEvents();
     toast(`Welcome${fbUser.displayName ? ', ' + fbUser.displayName : ''}! 👋`);
+  } catch(e) {
+    console.error('completeLogin error:', e);
   } finally {
     completeLoginInProgress = false;
   }

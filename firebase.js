@@ -55,6 +55,22 @@ async function fbReloadUser()         { const u = fbAuth.currentUser; if (u) awa
 function fbCurrentUser()              { return fbAuth.currentUser; }
 function fbOnAuthStateChanged(cb)     { return fbAuth.onAuthStateChanged(cb); }
 
+async function fbDeleteAccount(password) {
+  const user = fbAuth.currentUser;
+  if (!user) throw new Error('No user signed in.');
+  // Re-authenticate before destructive action
+  const credential = firebase.auth.EmailAuthProvider.credential(user.email, password);
+  await user.reauthenticateWithCredential(credential);
+  // Wipe Firestore documents
+  const uid = user.uid;
+  await Promise.allSettled([
+    userDataDoc(uid).delete(),
+    userDoc(uid).delete()
+  ]);
+  // Delete the auth account
+  await user.delete();
+}
+
 // ── Firestore data ────────────────────────────────────────────────────────────
 
 async function fbLoadUserData(uid) {
@@ -73,5 +89,6 @@ function fbSubscribeUserData(uid, onUpdate) {
 Object.assign(window, {
   fbSignUp, fbSignIn, fbSignOut, fbResendVerification,
   fbResetPassword, fbReloadUser, fbCurrentUser,
-  fbOnAuthStateChanged, fbLoadUserData, fbSaveUserData, fbSubscribeUserData
+  fbOnAuthStateChanged, fbLoadUserData, fbSaveUserData, fbSubscribeUserData,
+  fbDeleteAccount
 });
