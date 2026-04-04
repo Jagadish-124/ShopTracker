@@ -21,7 +21,7 @@ let dailyGoal = 0;
 let activeQuickSellId = null;
 let quickSellQty = '0';
 let pendingUndoTimer = null;
-let notificationSettings = { enabled: false, lowStock: true, goal: true };
+let notificationSettings = { enabled: false, lowStock: true, goal: true, dailySummary: true };
 let firestoreUnsub = null;
 let completeLoginInProgress = false; // ← guard against double-fire
 let _saveDebounceTimer = null;       // ← debounce Firestore writes
@@ -111,7 +111,7 @@ function applyUserData(data) {
   currency             = data.currency             || 'INR';
   skuCounter           = parseInt(data.skuCounter) || 1;
   dailyGoal            = parseFloat(data.dailyGoal)|| 0;
-  notificationSettings = data.notificationSettings || { enabled: false, lowStock: true, goal: true };
+  notificationSettings = data.notificationSettings || { enabled: false, lowStock: true, goal: true, dailySummary: true };
 
   hydrateProductLinks();
   nextProdId = Math.max(Date.now(), ...products.map(p => Number(p.id) || 0)) + 1;
@@ -823,6 +823,9 @@ function initAuth() {
   // onAuthStateChanged triggers on sign-in/sign-out.
   // We use this for the primary UI routing.
   fbOnAuthStateChanged(handleAuthChange);
+
+  // Periodic check for daily summary (8 PM)
+  setInterval(checkDailyDigest, 60000);
 }
 
 async function handleAuthChange(fbUser) {
@@ -1039,6 +1042,34 @@ function notifyImportantEvents(force = false) {
   if (dailyGoal > 0 && notificationSettings.goal && todayProfit >= dailyGoal && (force || !localStorage.getItem(goalKey))) {
     sendBrowserNotification('Daily goal reached', `You hit your profit goal with ${fmt(todayProfit)} today.`, 'goal-reached');
     localStorage.setItem(goalKey, 'sent');
+  }
+
+  checkDailyDigest();
+}
+
+/** Calculates day's stats and triggers notification after 8 PM */
+function checkDailyDigest() {
+  if (!notificationSettings.enabled || !notificationSettings.dailySummary || !currentUser) return;
+
+  const now = new Date();
+  const today = now.toISOString().split('T')[0];
+  const digestKey = `notify:${currentUser.uid}:digest:${today}`;
+
+  // Show if it's 8:00 PM (20:00) or later, and not yet sent today
+  if (now.getHours() >= 20 && !localStorage.getItem(digestKey)) {
+    const todayTxns = transactions.filter(t => t.date === today);
+    if (todayTxns.length === 0) return; // Only notify if there were sales
+
+    const rev    = todayTxns.reduce((s, t) => s + t.total, 0);
+    const profit = todayTxns.reduce((s, t) => s + t.profit, 0);
+    const items  = todayTxns.reduce((s, t) => s + t.qty, 0);
+
+    sendBrowserNotification(
+      "Daily Summary 📊",
+      `Today: ${fmt(rev)} revenue, ${fmt(profit)} profit, ${items} items sold`,
+      'daily-digest'
+    );
+    localStorage.setItem(digestKey, 'sent');
   }
 }
 

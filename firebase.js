@@ -37,7 +37,7 @@ async function fbSignUp(email, password, displayName) {
     products: [], transactions: [], restockHistory: [],
     movementHistory: [], reviewedProducts: [],
     currency: 'INR', skuCounter: 1, dailyGoal: 0,
-    notificationSettings: { enabled: false, lowStock: true, goal: true },
+    notificationSettings: { enabled: false, lowStock: true, goal: true, dailySummary: true },
     updatedAt: firebase.firestore.FieldValue.serverTimestamp()
   });
   return { user };
