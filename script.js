@@ -238,10 +238,12 @@ function matchesProductRecord(record, product) {
 
 function hasChartSupport() { return typeof window.Chart === 'function'; }
 function hasPdfSupport()   { return !!window.jspdf?.jsPDF; }
+// ============================================================================
+// AUTHENTICATION UI  — drop-in replacement for the auth section in script.js
+// Fixes: stuck loading state, double-login race, missing fallback timeout
+// ============================================================================
 
-// ============================================================================
-// AUTHENTICATION UI  (wired to Firebase)
-// ============================================================================
+let completeLoginInProgress = false; // guard against double-fire
 
 function getAuthElements() {
   return {
@@ -279,10 +281,10 @@ function setAuthMessage(message, type = 'info') {
 function setAuthLoading(loading) {
   const { submit } = getAuthElements();
   if (!submit) return;
-  submit.disabled     = loading;
-  submit.textContent  = loading
+  submit.disabled    = loading;
+  submit.textContent = loading
     ? (authMode === 'signup' ? 'Creating account…' : 'Signing in…')
-    : (authMode === 'signup' ? 'Sign Up' : 'Log In');
+    : (authMode === 'signup' ? 'Sign Up'           : 'Log In');
 }
 
 function updateAuthMode(mode) {
@@ -305,11 +307,11 @@ function updateAuthMode(mode) {
   switchBtn.textContent      = signupMode ? 'Already have an account?' : 'Need to create an account?';
   if (forgotBtn) forgotBtn.style.display = signupMode ? 'none' : 'inline-flex';
 
-  if (name)    name.value    = '';
-  if (email)   email.value   = '';
+  if (name)     name.value     = '';
+  if (email)    email.value    = '';
   if (password) password.value = '';
-  if (confirm) confirm.value = '';
-  if (message) message.textContent = '';
+  if (confirm)  confirm.value  = '';
+  if (message)  message.textContent = '';
   (signupMode ? name : email)?.focus();
 }
 
@@ -320,16 +322,13 @@ function updateAuthUI(fbUser) {
   const authed   = !!fbUser;
   const verified = fbUser?.emailVerified ?? false;
 
-  // Auth overlay — show if not logged in
-  if (overlay)      overlay.style.display      = authed ? 'none' : 'flex';
-  // Verify screen — show if logged in but NOT verified
-  if (verifyScreen) verifyScreen.style.display  = (authed && !verified) ? 'flex' : 'none';
-  // App shell — show only if logged in AND verified
+  if (overlay)      overlay.style.display     = authed ? 'none' : 'flex';
+  if (verifyScreen) verifyScreen.style.display = (authed && !verified) ? 'flex' : 'none';
   if (shell)        shell.classList.toggle('app-shell-hidden', !(authed && verified));
 
-  if (profileMenu) profileMenu.style.display = (authed && verified) ? 'inline-flex' : 'none';
-  if (userBadge)   userBadge.textContent     = fbUser ? (fbUser.displayName || fbUser.email) : '';
-  if (profileChip) profileChip.setAttribute('aria-expanded', 'false');
+  if (profileMenu)    profileMenu.style.display = (authed && verified) ? 'inline-flex' : 'none';
+  if (userBadge)      userBadge.textContent     = fbUser ? (fbUser.displayName || fbUser.email) : '';
+  if (profileChip)    profileChip.setAttribute('aria-expanded', 'false');
   if (profileDropdown) profileDropdown.classList.remove('open');
 }
 
@@ -369,26 +368,47 @@ async function handleAuthAction() {
   const userEmail   = email?.value?.trim()    || '';
   const pwd         = password?.value?.trim() || '';
 
-  if (!userEmail) { setAuthMessage('Enter a valid email address.', 'error'); return; }
-  if (pwd.length < 6) { setAuthMessage('Password must be at least 6 characters.', 'error'); return; }
+  if (!userEmail)      { setAuthMessage('Enter a valid email address.', 'error'); return; }
+  if (pwd.length < 6)  { setAuthMessage('Password must be at least 6 characters.', 'error'); return; }
 
   setAuthLoading(true);
   setAuthMessage('');
 
   try {
     if (authMode === 'signup') {
-      if (!displayName) { setAuthMessage('Enter your name to create the account.', 'error'); setAuthLoading(false); return; }
-      if (pwd !== confirm?.value?.trim()) { setAuthMessage('Passwords do not match.', 'error'); setAuthLoading(false); return; }
+      if (!displayName) {
+        setAuthMessage('Enter your name to create the account.', 'error');
+        setAuthLoading(false);
+        return;
+      }
+      if (pwd !== confirm?.value?.trim()) {
+        setAuthMessage('Passwords do not match.', 'error');
+        setAuthLoading(false);
+        return;
+      }
 
       await fbSignUp(userEmail, pwd, displayName);
-      // Firebase onAuthStateChanged will fire — show verify screen automatically
+      // onAuthStateChanged will fire → shows verify screen automatically
+      // Re-enable button so user can retry if something goes wrong
+      setAuthLoading(false);
       setAuthMessage('');
 
     } else {
-      const { user } = await fbSignIn(userEmail, pwd);
-      setAuthLoading(false);
-      // onAuthStateChanged fires next — updateAuthUI handles screen switching
-      setAuthMessage('');
+      // LOGIN PATH
+      await fbSignIn(userEmail, pwd);
+      // ← setAuthLoading(false) intentionally NOT called here yet.
+      // onAuthStateChanged fires next and either:
+      //   a) calls completeLogin → app loads (button irrelevant)
+      //   b) shows verify screen → button re-enabled below via timeout fallback
+
+      // Fallback: if onAuthStateChanged doesn't fire within 8s, re-enable button
+      setTimeout(() => {
+        const { submit } = getAuthElements();
+        if (submit && submit.disabled) {
+          setAuthLoading(false);
+          setAuthMessage('Taking longer than expected — please try again.', 'info');
+        }
+      }, 8000);
     }
   } catch(e) {
     setAuthMessage(friendlyFirebaseError(e), 'error');
@@ -398,25 +418,25 @@ async function handleAuthAction() {
 
 function friendlyFirebaseError(e) {
   const map = {
-    'auth/email-already-in-use':    'That email is already registered. Log in instead.',
-    'auth/invalid-email':           'Enter a valid email address.',
-    'auth/weak-password':           'Password must be at least 6 characters.',
-    'auth/user-not-found':          'No account found for that email.',
-    'auth/wrong-password':          'Incorrect password. Try again.',
-    'auth/invalid-credential':      'Incorrect email or password.',
-    'auth/too-many-requests':       'Too many attempts. Please wait a moment.',
-    'auth/network-request-failed':  'Network error. Check your connection.',
-    'auth/user-disabled':           'This account has been disabled.',
+    'auth/email-already-in-use':   'That email is already registered. Log in instead.',
+    'auth/invalid-email':          'Enter a valid email address.',
+    'auth/weak-password':          'Password must be at least 6 characters.',
+    'auth/user-not-found':         'No account found for that email.',
+    'auth/wrong-password':         'Incorrect password. Try again.',
+    'auth/invalid-credential':     'Incorrect email or password.',
+    'auth/too-many-requests':      'Too many attempts. Please wait a moment.',
+    'auth/network-request-failed': 'Network error. Check your connection.',
+    'auth/user-disabled':          'This account has been disabled.',
   };
   return map[e.code] || e.message || 'Something went wrong. Please try again.';
 }
 
 async function logout() {
   closeProfileMenu();
-  // Stop real-time listener
+  completeLoginInProgress = false;
   if (firestoreUnsub) { firestoreUnsub(); firestoreUnsub = null; }
-  // Reset in-memory data
-  currentUser = null; products = []; transactions = []; restockHistory = [];
+  currentUser = null;
+  products = []; transactions = []; restockHistory = [];
   movementHistory = []; reviewedProducts = []; dailyGoal = 0;
   currency = 'INR'; skuCounter = 1;
   notificationSettings = { enabled: false, lowStock: true, goal: true };
@@ -427,31 +447,41 @@ async function logout() {
 
 // Called after email verified — load data and show app
 async function completeLogin(fbUser) {
-  currentUser = fbUser;
+  // Guard: prevent double-execution if both checkEmailVerified and
+  // onAuthStateChanged try to call this simultaneously
+  if (completeLoginInProgress) return;
+  completeLoginInProgress = true;
 
-  // Load data from Firestore
-  const data = await fbLoadUserData(fbUser.uid);
-  applyUserData(data);
-  loadCurrency();
+  try {
+    currentUser = fbUser;
 
-  // Subscribe to real-time updates (other devices, tabs)
-  if (firestoreUnsub) firestoreUnsub();
-  firestoreUnsub = fbSubscribeUserData(fbUser.uid, remoteData => {
-    applyUserData(remoteData);
+    const data = await fbLoadUserData(fbUser.uid);
+    applyUserData(data);
     loadCurrency();
-    render();
-  });
 
-  updateAuthUI(fbUser);
-  loadViewMode();
-  applyViewMode();
-  render();
-  if (activeViewMode === 'insights') renderDashboard();
-  notifyImportantEvents();
-  toast(`Welcome${fbUser.displayName ? ', ' + fbUser.displayName : ''}! 👋`);
+    if (firestoreUnsub) firestoreUnsub();
+    firestoreUnsub = fbSubscribeUserData(fbUser.uid, remoteData => {
+      applyUserData(remoteData);
+      loadCurrency();
+      render();
+    });
+
+    updateAuthUI(fbUser);
+    // Re-enable submit button now that we're in the app
+    setAuthLoading(false);
+
+    loadViewMode();
+    applyViewMode();
+    render();
+    if (activeViewMode === 'insights') renderDashboard();
+    notifyImportantEvents();
+    toast(`Welcome${fbUser.displayName ? ', ' + fbUser.displayName : ''}! 👋`);
+  } finally {
+    completeLoginInProgress = false;
+  }
 }
 
-// ── Verification screen actions ───────────────────────────────────────────────
+// ── Verification screen actions ──────────────────────────────────────────────
 
 async function resendVerificationEmail() {
   try {
@@ -476,11 +506,13 @@ async function checkEmailVerified() {
   }
 }
 
-// ── Firebase auth state listener (fires on page load, login, logout) ─────────
+// ── Firebase auth state listener ─────────────────────────────────────────────
 function initAuth() {
   fbOnAuthStateChanged(async fbUser => {
+    // Always re-enable the submit button when auth state settles
+    setAuthLoading(false);
+
     if (!fbUser) {
-      // Signed out
       updateAuthMode('login');
       updateAuthUI(null);
       return;
@@ -489,16 +521,15 @@ function initAuth() {
     currentUser = fbUser;
 
     if (!fbUser.emailVerified) {
-      // Signed in but not verified — show verify screen
+      // Show verify screen — do NOT call completeLogin
       updateAuthUI(fbUser);
       return;
     }
 
-    // Signed in and verified — load app
+    // Verified — load app
     await completeLogin(fbUser);
   });
 }
-
 
 
 // ============================================================================
