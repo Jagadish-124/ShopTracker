@@ -20,6 +20,7 @@ let currentUser = null;
 let dailyGoal = 0;
 let activeQuickSellId = null;
 let bulkEntries = {}; // { productId: qty }
+let bulkPriceOverrides = {}; // { productId: price }
 let quickSellQty = '0';
 let pendingUndoTimer = null;
 let notificationSettings = { enabled: false, lowStock: true, goal: true, dailySummary: true };
@@ -1472,7 +1473,7 @@ function setSort(val)     { sortBy = val;                    renderProducts(); }
 // ============================================================================
 
 // ← IMPROVED: Supports manual qty/note for Quick Sell Number Pad
-function sellProduct(id, manualQty = null, manualNote = null) {
+function sellProduct(id, manualQty = null, manualNote = null, manualPrice = null) {
   const qtyInput  = document.getElementById('qty-' + id); // fallback
   const noteInput = document.getElementById('note-' + id); // fallback
 
@@ -1485,13 +1486,17 @@ function sellProduct(id, manualQty = null, manualNote = null) {
   const currentStock = getCurrentStock(product);
   if (qty > currentStock)     { toast(`Only ${currentStock} units in stock.`, 'error'); return; }
 
+  const sellPrice = (!isNaN(parseFloat(manualPrice))) 
+    ? parseFloat(manualPrice) 
+    : product.price;
+
   // Warn if selling ≥80% of stock in one transaction
   if ((qty / currentStock) >= 0.8 && currentStock > 5) {
     const proceed = confirm(`You're selling ${qty} of ${currentStock} units (${Math.round((qty/currentStock)*100)}% of stock). Continue?`);
     if (!proceed) return;
   }
 
-  const total     = qty * product.price;
+  const total     = qty * sellPrice;
   const totalCost = qty * product.cost;
   const profit    = total - totalCost;
   const date      = new Date().toISOString().split('T')[0];
@@ -1500,8 +1505,9 @@ function sellProduct(id, manualQty = null, manualNote = null) {
     id: Date.now(), date,
     productId: product.id, product: product.name,
     sku: product.sku || '', category: product.category || 'Uncategorized',
-    qty, cost: product.cost, price: product.price,
-    total, totalCost, profit, note
+    qty, cost: product.cost, price: sellPrice,
+    total, totalCost, profit, note,
+    isOverride: sellPrice !== product.price
   });
 
   if (qtyInput) qtyInput.value = '';
@@ -1524,11 +1530,16 @@ function openQuickSell(id) {
   const stockDisplay = document.getElementById('qs-stock-info');
   const display = document.getElementById('qs-display');
   const noteInput = document.getElementById('qs-note');
+  const priceInput = document.getElementById('qs-price');
 
   if (nameDisplay) nameDisplay.textContent = p.name;
   if (stockDisplay) stockDisplay.textContent = `Stock: ${getCurrentStock(p)} units`;
   if (display) display.textContent = '0';
   if (noteInput) noteInput.value = '';
+  if (priceInput) {
+    priceInput.value = '';
+    priceInput.placeholder = `Default: ${fmt(p.price)}`;
+  }
 
   modal.style.display = 'flex';
   requestAnimationFrame(() => modal.classList.add('open'));
@@ -1568,12 +1579,14 @@ function confirmQuickSell() {
   const qty = parseInt(quickSellQty);
   if (qty <= 0) { toast('Enter a quantity greater than 0.', 'error'); return; }
   const note = document.getElementById('qs-note')?.value?.trim() || '';
-  sellProduct(activeQuickSellId, qty, note);
+  const manualPrice = document.getElementById('qs-price')?.value?.trim() || null;
+  sellProduct(activeQuickSellId, qty, note, manualPrice);
   closeQuickSell();
 }
 
 function openBulkSell() {
   bulkEntries = {};
+  bulkPriceOverrides = {};
   const modal = document.getElementById('bulk-sell-modal');
   const searchInput = document.getElementById('bulk-search-input');
   if (searchInput) searchInput.value = '';
@@ -1600,15 +1613,22 @@ function renderBulkList() {
   container.innerHTML = filtered.map(p => {
     const stock = getCurrentStock(p);
     const qty = bulkEntries[p.id] || '';
+    const overridePrice = bulkPriceOverrides[p.id] || '';
+    const effectivePrice = overridePrice !== '' ? parseFloat(overridePrice) : p.price;
+    const profit = qty ? (effectivePrice - p.cost) * qty : 0;
+
     return `
-      <div class="bulk-item-row">
+      <div class="bulk-item-row" style="grid-template-columns: 1fr 100px 90px 80px;">
         <div>
           <div style="font-weight:700; font-size:14px;">${p.name}</div>
-          <div style="font-size:11px; color:var(--muted);">Stock: ${stock} | ${fmt(p.price)}</div>
+          <div style="font-size:11px; color:var(--muted);">Stock: ${stock} | Cost: ${fmt(p.cost)}</div>
         </div>
         <div style="text-align:right; font-size:12px; color:var(--green); font-weight:700;">
-          ${qty ? `+${fmt((p.price - p.cost) * qty)}` : ''}
+          ${qty ? `+${fmt(profit)}` : ''}
         </div>
+        <input type="number" value="${overridePrice}" placeholder="${fmt(p.price)}"
+          oninput="updateBulkPrice(${p.id}, this.value)"
+          style="width:100%; height:36px; padding:0 8px; border-radius:8px; border:1px solid var(--card-border); background:var(--input-bg); color:var(--text); text-align:center;" />
         <input type="number" value="${qty}" placeholder="Qty" min="0" max="${stock}"
           oninput="updateBulkQty(${p.id}, this.value)"
           style="width:100%; height:36px; padding:0 8px; border-radius:8px; border:1px solid var(--card-border); background:var(--input-bg); color:var(--text); text-align:center;" />
@@ -1629,8 +1649,17 @@ function updateBulkQty(id, val) {
     bulkEntries[id] = Math.min(qty, stock);
   }
   updateBulkFooter();
-  // We don't full render to avoid losing focus, just update the profit labels if needed
-  // or re-render selectively. For simplicity, we'll refresh the profit total.
+  // No re-render here to avoid focus loss; footer updates via updateBulkFooter
+}
+
+function updateBulkPrice(id, val) {
+  const price = parseFloat(val);
+  if (isNaN(price) || price <= 0) {
+    delete bulkPriceOverrides[id];
+  } else {
+    bulkPriceOverrides[id] = price;
+  }
+  updateBulkFooter();
 }
 
 function updateBulkFooter() {
@@ -1639,7 +1668,8 @@ function updateBulkFooter() {
   for (const [id, qty] of Object.entries(bulkEntries)) {
     const p = products.find(x => x.id == id);
     if (p) {
-      totalProfit += (p.price - p.cost) * qty;
+      const price = (bulkPriceOverrides[id] !== undefined) ? bulkPriceOverrides[id] : p.price;
+      totalProfit += (price - p.cost) * qty;
       count++;
     }
   }
@@ -1653,7 +1683,8 @@ function confirmBulkSell() {
   if (!ids.length) return;
   
   ids.forEach(id => {
-    sellProduct(parseInt(id), bulkEntries[id], 'End-of-day tally');
+    const pid = parseInt(id);
+    sellProduct(pid, bulkEntries[id], 'End-of-day tally', bulkPriceOverrides[id]);
   });
 
   closeBulkSell();
@@ -1687,6 +1718,7 @@ function renderTransactions() {
       <td>
         <div style="font-weight:600;">${getRecordProductName(t)}</div>
         ${t.sku ? `<div style="font-size:11px;color:var(--muted);margin-top:2px;">${t.sku}</div>` : ''}
+        ${t.isOverride ? `<span class="badge warning" style="margin-top:4px; font-size:9px; padding: 2px 6px;">Custom Price</span>` : ''}
         ${t.note ? `<div style="font-size:12px;color:var(--muted);margin-top:2px;">📝 ${t.note}</div>` : ''}
       </td>
       <td>${t.qty}</td>

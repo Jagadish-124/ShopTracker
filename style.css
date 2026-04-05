@@ -1435,6 +1435,32 @@ td button:hover {
   box-shadow: 0 6px 20px rgba(29, 158, 117, 0.5);
 }
 
+/* Bulk Sell Items */
+.bulk-item-row {
+  display: grid;
+  grid-template-columns: 1fr 80px 80px 80px;
+  align-items: center;
+  gap: 12px;
+  padding: 12px 16px;
+  border-bottom: 1px solid var(--card-border);
+}
+
+.bulk-item-row:last-child {
+  border-bottom: none;
+}
+
+.bulk-item-row input {
+  font-size: 13px;
+  font-weight: 600;
+  transition: all 180ms ease;
+}
+
+.bulk-item-row input:focus {
+  border-color: var(--green);
+  background: rgba(255,255,255,0.05);
+  box-shadow: 0 0 0 2px rgba(29,158,117,0.15);
+}
+
 /* ============================================================
    ALERT BANNERS (restock / expiry)
    ============================================================ */
