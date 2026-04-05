@@ -1,5 +1,5 @@
 // Change this to your registered email address
-const CREATOR_EMAIL = "jagad@example.com"; 
+const CREATOR_EMAIL = "jagadish12006@gmail.com"; 
 
 let currency = 'INR';
 let baseCurrency = 'INR';
