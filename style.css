@@ -1415,6 +1415,26 @@ td button:hover {
   border-color: #D85A30;
 }
 
+/* Bulk Sell Specific Prominence */
+.bulk-sell-btn {
+  padding: 10px 22px;
+  background: var(--green);
+  color: #fff;
+  border: none;
+  border-radius: 12px;
+  font-size: 14px;
+  font-weight: 700;
+  cursor: pointer;
+  box-shadow: 0 4px 14px rgba(29, 158, 117, 0.35);
+  transition: transform 180ms ease, background 220ms ease, box-shadow 220ms ease;
+}
+
+.bulk-sell-btn:hover {
+  background: var(--green-dark);
+  transform: translateY(-2px);
+  box-shadow: 0 6px 20px rgba(29, 158, 117, 0.5);
+}
+
 /* ============================================================
    ALERT BANNERS (restock / expiry)
    ============================================================ */

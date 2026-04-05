@@ -128,7 +128,6 @@
           <button onclick="exportCSV()" class="export-btn csv-btn" aria-label="Export CSV">⬇ Export CSV</button>
           <button onclick="exportPDF()" class="export-btn pdf-btn" aria-label="Export PDF">⬇ Export PDF</button>
           <button onclick="clearAllData()" class="clear-btn" aria-label="Clear all data">🗑 Clear All</button>
-          <button onclick="openBulkSell()" class="export-btn" style="border-color:var(--green);color:var(--green);font-weight:700;" aria-label="Bulk sell entries">📦 Bulk Sell</button>
           <button class="import-csv-btn" onclick="openCsvImport()" aria-label="Import products from CSV">⬆ Import CSV</button>
           <!-- Save status indicator -->
           <span id="save-status" class="save-status save-status-idle" aria-live="polite" aria-label="Save status"></span>
@@ -303,6 +302,9 @@
 
     <!-- Product Form — home only -->
     <div class="form-section" data-view="home">
+      <div style="display: flex; justify-content: flex-end; margin-bottom: 20px;">
+        <button onclick="openBulkSell()" class="bulk-sell-btn" aria-label="Bulk sell entries">📦 Bulk Sell</button>
+      </div>
       <div class="form-grid" style="grid-template-columns: repeat(3, 1fr);">
         <div class="form-group">
           <label for="prod-name">Product Name</label>
