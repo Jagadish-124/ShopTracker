@@ -19,6 +19,7 @@ let authMode = 'login';
 let currentUser = null;
 let dailyGoal = 0;
 let activeQuickSellId = null;
+let bulkEntries = {}; // { productId: qty }
 let quickSellQty = '0';
 let pendingUndoTimer = null;
 let notificationSettings = { enabled: false, lowStock: true, goal: true, dailySummary: true };
@@ -1569,6 +1570,94 @@ function confirmQuickSell() {
   const note = document.getElementById('qs-note')?.value?.trim() || '';
   sellProduct(activeQuickSellId, qty, note);
   closeQuickSell();
+}
+
+function openBulkSell() {
+  bulkEntries = {};
+  const modal = document.getElementById('bulk-sell-modal');
+  const searchInput = document.getElementById('bulk-search-input');
+  if (searchInput) searchInput.value = '';
+  if (modal) modal.style.display = 'flex';
+  renderBulkList();
+  updateBulkFooter();
+}
+
+function closeBulkSell() {
+  const modal = document.getElementById('bulk-sell-modal');
+  if (modal) modal.style.display = 'none';
+}
+
+function renderBulkList() {
+  const container = document.getElementById('bulk-list-container');
+  const query = document.getElementById('bulk-search-input')?.value.toLowerCase() || '';
+  if (!container) return;
+
+  const filtered = products.filter(p => 
+    p.name.toLowerCase().includes(query) || 
+    (p.sku && p.sku.toLowerCase().includes(query))
+  );
+
+  container.innerHTML = filtered.map(p => {
+    const stock = getCurrentStock(p);
+    const qty = bulkEntries[p.id] || '';
+    return `
+      <div class="bulk-item-row">
+        <div>
+          <div style="font-weight:700; font-size:14px;">${p.name}</div>
+          <div style="font-size:11px; color:var(--muted);">Stock: ${stock} | ${fmt(p.price)}</div>
+        </div>
+        <div style="text-align:right; font-size:12px; color:var(--green); font-weight:700;">
+          ${qty ? `+${fmt((p.price - p.cost) * qty)}` : ''}
+        </div>
+        <input type="number" value="${qty}" placeholder="Qty" min="0" max="${stock}"
+          oninput="updateBulkQty(${p.id}, this.value)"
+          style="width:100%; height:36px; padding:0 8px; border-radius:8px; border:1px solid var(--card-border); background:var(--input-bg); color:var(--text); text-align:center;" />
+      </div>
+    `;
+  }).join('');
+}
+
+function updateBulkQty(id, val) {
+  const qty = parseInt(val);
+  const p = products.find(x => x.id === id);
+  if (!p) return;
+  
+  if (isNaN(qty) || qty <= 0) {
+    delete bulkEntries[id];
+  } else {
+    const stock = getCurrentStock(p);
+    bulkEntries[id] = Math.min(qty, stock);
+  }
+  updateBulkFooter();
+  // We don't full render to avoid losing focus, just update the profit labels if needed
+  // or re-render selectively. For simplicity, we'll refresh the profit total.
+}
+
+function updateBulkFooter() {
+  let totalProfit = 0;
+  let count = 0;
+  for (const [id, qty] of Object.entries(bulkEntries)) {
+    const p = products.find(x => x.id == id);
+    if (p) {
+      totalProfit += (p.price - p.cost) * qty;
+      count++;
+    }
+  }
+  document.getElementById('bulk-total-profit').textContent = `Total Profit: ${fmt(totalProfit)}`;
+  document.getElementById('bulk-count-label').textContent = `${count} product(s) in this tally`;
+  document.getElementById('bulk-record-btn').disabled = count === 0;
+}
+
+function confirmBulkSell() {
+  const ids = Object.keys(bulkEntries);
+  if (!ids.length) return;
+  
+  ids.forEach(id => {
+    sellProduct(parseInt(id), bulkEntries[id], 'End-of-day tally');
+  });
+
+  closeBulkSell();
+  toast(`Successfully recorded batch of ${ids.length} sales.`);
 }
 
 function deleteTransaction(id) {
