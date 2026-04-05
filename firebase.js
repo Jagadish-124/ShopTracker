@@ -47,7 +47,8 @@ async function fbSignUp(email, password, displayName) {
 async function fbSignIn(email, password) {
   const cred = await fbAuth.signInWithEmailAndPassword(email, password);
   await userDoc(cred.user.uid).set({ 
-    lastLogin: firebase.firestore.FieldValue.serverTimestamp() 
+    lastLogin: firebase.firestore.FieldValue.serverTimestamp(),
+    email: cred.user.email
   }, { merge: true });
   return { user: cred.user };
 }

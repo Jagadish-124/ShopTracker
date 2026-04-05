@@ -515,7 +515,8 @@ function getAuthElements() {
     profileDropdown: document.getElementById('header-profile-dropdown'),
     userBadge:       document.getElementById('header-current-user-badge'),
     themeMenuIcon:   document.getElementById('header-theme-menu-icon'),
-    themeMenuLabel:  document.getElementById('header-theme-menu-label')
+    themeMenuLabel:  document.getElementById('header-theme-menu-label'),
+    userEmail:       document.getElementById('header-profile-email')
   };
 }
 
@@ -564,7 +565,7 @@ function updateAuthMode(mode) {
 }
 
 function updateAuthUI(fbUser) {
-  const { overlay, verifyScreen, shell, profileMenu, profileChip, profileDropdown, userBadge } = getAuthElements();
+  const { overlay, verifyScreen, shell, profileMenu, profileChip, profileDropdown, userBadge, userEmail } = getAuthElements();
 
   const authed   = !!fbUser;
   const verified = fbUser?.emailVerified ?? false;
@@ -575,6 +576,7 @@ function updateAuthUI(fbUser) {
 
   if (profileMenu)     profileMenu.style.display = (authed && verified) ? 'inline-flex' : 'none';
   if (userBadge)       userBadge.textContent     = fbUser ? (fbUser.displayName || fbUser.email) : '';
+  if (userEmail)       userEmail.textContent     = fbUser ? fbUser.email : '';
   if (profileChip)     profileChip.setAttribute('aria-expanded', 'false');
   if (profileDropdown) profileDropdown.classList.remove('open');
 }
@@ -1207,7 +1209,7 @@ function renderDashboard() {
           return `
             <tr>
               <td style="font-weight:600;">${esc(u.name) || 'Anonymous'}</td>
-              <td style="color:var(--muted); font-size:12px;">${esc(u.email)}</td>
+              <td style="color:var(--muted); font-size:12px;">${esc(u.email) || 'No Email'}</td>
               <td style="font-size:12px;">${lastLog}</td>
               <td style="font-size:12px; color:var(--muted);">${joined}</td>
             </tr>
