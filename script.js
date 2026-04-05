@@ -1175,14 +1175,39 @@ function renderDashboard() {
 
   // Check for Creator Access
   const creatorKpi = document.getElementById('creator-kpi');
+  const adminPanel = document.getElementById('creator-admin-panel');
   if (currentUser && currentUser.email === CREATOR_EMAIL) {
     if (creatorKpi) creatorKpi.style.display = 'flex';
     fbGetUserCount().then(count => {
       const valEl = document.getElementById('kpi-total-users');
       if (valEl) valEl.textContent = count;
     }).catch(err => console.warn("Admin fetch failed (Check Firestore Rules):", err));
+
+    if (adminPanel) {
+      adminPanel.style.display = 'block';
+      fbGetAllUsers().then(users => {
+        const tbody = document.getElementById('admin-user-body');
+        if (!tbody) return;
+        tbody.innerHTML = users.map(u => {
+          const lastLog = u.lastLogin ? new Date(getMillis(u.lastLogin)).toLocaleString() : 'Never';
+          const joined = u.createdAt ? new Date(getMillis(u.createdAt)).toLocaleDateString() : '—';
+          return `
+            <tr>
+              <td style="font-weight:600;">${u.name || 'Anonymous'}</td>
+              <td style="color:var(--muted); font-size:12px;">${u.email}</td>
+              <td style="font-size:12px;">${lastLog}</td>
+              <td style="font-size:12px; color:var(--muted);">${joined}</td>
+            </tr>
+          `;
+        }).join('');
+      }).catch(err => {
+        console.error("Failed to fetch user list:", err);
+        adminPanel.style.display = 'none';
+      });
+    }
   } else {
     if (creatorKpi) creatorKpi.style.display = 'none';
+    if (adminPanel) adminPanel.style.display = 'none';
   }
 
   const grouped = {};

@@ -31,7 +31,8 @@ async function fbSignUp(email, password, displayName) {
   await user.sendEmailVerification();
   await userDoc(user.uid).set({
     name: displayName, email: user.email,
-    createdAt: firebase.firestore.FieldValue.serverTimestamp()
+    createdAt: firebase.firestore.FieldValue.serverTimestamp(),
+    lastLogin: firebase.firestore.FieldValue.serverTimestamp()
   });
   await userDataDoc(user.uid).set({
     products: [], transactions: [], restockHistory: [],
@@ -45,6 +46,9 @@ async function fbSignUp(email, password, displayName) {
 
 async function fbSignIn(email, password) {
   const cred = await fbAuth.signInWithEmailAndPassword(email, password);
+  await userDoc(cred.user.uid).set({ 
+    lastLogin: firebase.firestore.FieldValue.serverTimestamp() 
+  }, { merge: true });
   return { user: cred.user };
 }
 
@@ -93,9 +97,14 @@ async function fbGetUserCount() {
   return snapshot.data().count;
 }
 
+async function fbGetAllUsers() {
+  const snapshot = await fbDb.collection('users').orderBy('lastLogin', 'desc').get();
+  return snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+}
+
 Object.assign(window, {
   fbSignUp, fbSignIn, fbSignOut, fbResendVerification,
   fbResetPassword, fbReloadUser, fbCurrentUser,
   fbOnAuthStateChanged, fbLoadUserData, fbSaveUserData, fbSubscribeUserData,
-  fbDeleteAccount, fbGetUserCount
+  fbDeleteAccount, fbGetUserCount, fbGetAllUsers
 });
