@@ -94,6 +94,68 @@ function hideLoadingScreen() {
   setTimeout(() => el.remove(), 420);
 }
 
+// ── Image Helpers ────────────────────────────────────────────────────────────
+
+async function handleImageUpload(input) {
+  const file = input.files[0];
+  const preview = document.getElementById('image-preview');
+  const hidden = document.getElementById('prod-image-base64');
+  if (!file) return;
+
+  const urlInput = document.getElementById('prod-image-url');
+  if (urlInput) urlInput.value = '';
+
+  const reader = new FileReader();
+  reader.readAsDataURL(file);
+  reader.onload = (e) => {
+    const img = new Image();
+    img.src = e.target.result;
+    img.onload = () => {
+      const canvas = document.createElement('canvas');
+      const MAX = 120; // Small size for Firestore efficiency
+      let w = img.width, h = img.height;
+      if (w > h) { if (w > MAX) { h *= MAX / w; w = MAX; } }
+      else { if (h > MAX) { w *= MAX / h; h = MAX; } }
+      canvas.width = w; canvas.height = h;
+      canvas.getContext('2d').drawImage(img, 0, 0, w, h);
+      const base64 = canvas.toDataURL('image/jpeg', 0.7);
+      preview.innerHTML = `<img src="${base64}" style="width:100%;height:100%;object-fit:cover;">`;
+      hidden.value = base64;
+    };
+  };
+}
+
+/** Sets product image from a URL instead of file upload */
+function handleImageUrl(url) {
+  const preview = document.getElementById('image-preview');
+  const hidden  = document.getElementById('prod-image-base64');
+  const fileInput = document.getElementById('prod-image');
+ 
+  if (!url) {
+    preview.innerHTML = '🖼️';
+    hidden.value = '';
+    return;
+  }
+ 
+  // ← SECURITY FIX: only allow http/https URLs
+  if (!url.startsWith('http://') && !url.startsWith('https://')) {
+    preview.innerHTML = '⚠️ Invalid URL';
+    hidden.value = '';
+    return;
+  }
+ 
+  if (fileInput) fileInput.value = '';
+ 
+  // Use DOM API instead of innerHTML to avoid XSS
+  const img = document.createElement('img');
+  img.style.cssText = 'width:100%;height:100%;object-fit:cover;';
+  img.onerror = () => { preview.innerHTML = '⚠️'; };
+  img.src = url;  // Safe: src attribute, not innerHTML
+  preview.innerHTML = '';
+  preview.appendChild(img);
+  hidden.value = url;
+}
+
 // ============================================================================
 // DATA LAYER — Firebase Firestore
 // ============================================================================
@@ -669,6 +731,7 @@ async function logout() {
   movementHistory = []; reviewedProducts = []; dailyGoal = 0;
   currency = 'INR'; skuCounter = 1;
   notificationSettings = { enabled: false, lowStock: true, goal: true };
+  localStorage.removeItem(PENDING_SAVE_KEY); // Security: Clear offline cache on logout
   destroyCharts(); // ← NEW: prevent canvas reuse errors on next login
   await fbSignOut();
   updateAuthMode('login');
@@ -777,36 +840,38 @@ async function confirmDeleteAccount() {
 }
 
 async function completeLogin(fbUser) {
-  if (completeLoginInProgress) return; // ← guard against double-fire
+  if (completeLoginInProgress) return;
   completeLoginInProgress = true;
-
+ 
   try {
     currentUser = fbUser;
-
-    // ← Unblock UI immediately — don't wait for Firestore data
+ 
     updateAuthUI(fbUser);
     setAuthLoading(false);
     hideLoadingScreen();
-
+ 
     loadViewMode();
     applyViewMode();
     render();
-
-    // Load data with a timeout guard so a slow/offline Firestore doesn't hang
+ 
     const dataPromise = fbLoadUserData(fbUser.uid);
     const timeoutPromise = new Promise(resolve => setTimeout(() => resolve(null), 8000));
     const data = await Promise.race([dataPromise, timeoutPromise]);
     applyUserData(data);
     loadCurrency();
     render();
-
+ 
     if (firestoreUnsub) firestoreUnsub();
-    firestoreUnsub = fbSubscribeUserData(fbUser.uid, remoteData => {
+    firestoreUnsub = fbSubscribeUserData(fbUser.uid, (remoteData, metadata) => {
+      // ← FIX: skip snapshots triggered by our own writes
+      if (metadata && metadata.hasPendingWrites) return;
+      const remoteTs = getMillis(remoteData?.updatedAt);
+      if (remoteTs > 0 && remoteTs <= _lastSyncedAt) return;
       applyUserData(remoteData);
       loadCurrency();
       render();
     });
-
+ 
     if (activeViewMode === 'insights') renderDashboard();
     notifyImportantEvents();
     toast(`Welcome${fbUser.displayName ? ', ' + fbUser.displayName : ''}! 👋`);
@@ -850,30 +915,33 @@ function initAuth() {
 }
 
 async function handleAuthChange(fbUser) {
-    setAuthLoading(false); // ← always unblock button when Firebase responds
-
-    if (!fbUser) {
-      hideLoadingScreen();
-      // If we were previously logged in and the user is now null, 
-      // it means the session was invalidated or the user signed out.
-      if (currentUser) {
-        toast('Session closed.', 'info');
-      }
-      updateAuthMode('login');
-      updateAuthUI(null);
-      currentUser = null;
-      return;
-    }
-
-    const isNewUser = !currentUser || currentUser.uid !== fbUser.uid;
+  setAuthLoading(false);
+ 
+  if (!fbUser) {
+    hideLoadingScreen();
+    if (currentUser) toast('Session closed.', 'info');
+    updateAuthMode('login');
+    updateAuthUI(null);
+    currentUser = null;
+    return;
+  }
+ 
+  if (!fbUser.emailVerified) {
+    hideLoadingScreen();
     currentUser = fbUser;
-
-    if (!fbUser.emailVerified) {
-      hideLoadingScreen();
-      updateAuthUI(fbUser);
-      return;
-    }
-
+    updateAuthUI(fbUser);
+    return;
+  }
+ 
+  const needsInit = !currentUser || currentUser.uid !== fbUser.uid || !firestoreUnsub;
+  currentUser = fbUser;
+  if (needsInit) {
+    await completeLogin(fbUser);
+  } else {
+    // Token refreshed, same session — just update UI
+    updateAuthUI(fbUser);
+  }
+}
     // If it's a fresh login or a re-auth, complete the setup
     if (isNewUser) {
       await completeLogin(fbUser);
@@ -881,7 +949,7 @@ async function handleAuthChange(fbUser) {
       // Token was simply refreshed or verified; update UI but don't re-init everything
       updateAuthUI(fbUser);
     }
-}
+
 
 // ============================================================================
 // CURRENCY & EXCHANGE RATES
@@ -917,15 +985,19 @@ function loadCurrency() {
 async function fetchExchangeRates() {
   const now     = Date.now();
   const oneHour = 60 * 60 * 1000;
-
+ 
   if (exchangeRates && ratesUpdatedAt && (now - parseInt(ratesUpdatedAt)) < oneHour) {
     updateRatesBadge('Rates cached ✓');
     return;
   }
-
+ 
   updateRatesBadge('Fetching rates…');
   try {
-    const res  = await fetch('https://v6.exchangerate-api.com/v6/c4700f47c7f6f17c24b3d4f6/latest/USD');
+    const res  = await fetch('https://v6.exchangerate-api.com/v6/c4700f47c7f6f17c24b3d4f6/latest/USD', {
+      // Adding referrer policy helps key whitelisting work correctly
+      referrerPolicy: 'origin'
+    });
+    if (!res.ok) throw new Error(`HTTP ${res.status}`);
     const data = await res.json();
     if (data.result === 'success') {
       exchangeRates  = data.conversion_rates;
@@ -938,9 +1010,15 @@ async function fetchExchangeRates() {
       updateRatesBadge('Rates unavailable');
     }
   } catch {
-    updateRatesBadge('Offline mode');
+    // Graceful fallback — use cached rates if available
+    if (exchangeRates) {
+      updateRatesBadge('Cached rates (offline)');
+    } else {
+      updateRatesBadge('Offline mode');
+    }
   }
 }
+ 
 
 function updateRatesBadge(text) {
   const el = document.getElementById('rates-badge');
@@ -1206,11 +1284,13 @@ function renderDashboard() {
         tbody.innerHTML = users.map(u => {
           const lastLog = u.lastLogin ? new Date(getMillis(u.lastLogin)).toLocaleString() : 'Never';
           const joined = u.createdAt ? new Date(getMillis(u.createdAt)).toLocaleDateString() : '—';
+          const isDeleted = u.status === 'deleted';
+          const rowStyle = isDeleted ? 'opacity: 0.6; font-style: italic; background: rgba(216,90,48,0.02);' : '';
           return `
-            <tr>
-              <td style="font-weight:600;">${esc(u.name) || 'Anonymous'}</td>
-              <td style="color:var(--muted); font-size:12px;">${esc(u.email) || 'No Email'}</td>
-              <td style="font-size:12px;">${lastLog}</td>
+            <tr style="${rowStyle}">
+              <td style="font-weight:600;">${esc(u.name) || 'Anonymous'} ${isDeleted ? '<span class="badge danger" style="font-size:9px;margin-left:5px;padding:2px 6px;">Deleted</span>' : ''}</td>
+              <td style="color:var(--muted); font-size:12px;">${esc(u.email) || (isDeleted ? '—' : 'No Email')}</td>
+              <td style="font-size:12px;">${isDeleted && u.deletedAt ? 'Left: ' + new Date(getMillis(u.deletedAt)).toLocaleString() : lastLog}</td>
               <td style="font-size:12px; color:var(--muted);">${joined}</td>
             </tr>
           `;
@@ -1303,9 +1383,7 @@ function renderDashboard() {
 
 function getCurrentStock(p) {
   if (!p) return 0;
-  const sales = transactions.filter(t => matchesProductRecord(t, p)).reduce((sum, t) => sum + t.qty, 0);
-  const restocks = restockHistory.filter(r => matchesProductRecord(r, p)).reduce((sum, r) => sum + r.qty, 0);
-  return parseInt(p.stock || 0) + restocks - sales;
+  return p.stock || 0;
 }
 
 // ← IMPROVED: duplicate name check + unique SKU guarantee
@@ -1321,6 +1399,7 @@ function addProduct() {
   const batchNumber = document.getElementById('prod-batch').value.trim();
   const expiryDate  = document.getElementById('prod-expiry').value;
   const skuInput    = document.getElementById('prod-sku').value.trim();
+  const image       = document.getElementById('prod-image-base64').value;
 
   if (!name || isNaN(cost) || cost <= 0 || isNaN(price) || price <= 0 || isNaN(stock) || stock < 0) {
     toast('Fill all required fields correctly.', 'error'); return;
@@ -1342,7 +1421,7 @@ function addProduct() {
     }
   }
 
-  products.push({ id: nextProdId++, sku, name, brand, variant, category, cost, price, stock, minStock, batchNumber, expiryDate });
+  products.push({ id: nextProdId++, sku, name, brand, variant, category, cost, price, stock, minStock, batchNumber, expiryDate, image });
   skuCounter++;
   saveCurrentUserData();
   addMovementEntry('Added', name, `Created ${sku} with ${stock} units at ${fmt(price)}.`);
@@ -1376,6 +1455,16 @@ function editProduct(id) {
   document.getElementById('prod-min').value      = p.minStock;
   document.getElementById('prod-batch').value    = p.batchNumber || '';
   document.getElementById('prod-expiry').value   = p.expiryDate  || '';
+  document.getElementById('prod-image-base64').value = p.image || '';
+  
+  const urlInput = document.getElementById('prod-image-url');
+  if (urlInput) {
+    urlInput.value = (p.image && p.image.startsWith('http')) ? p.image : '';
+  }
+
+  const preview = document.getElementById('image-preview');
+  if (p.image) preview.innerHTML = `<img src="${p.image}" style="width:100%;height:100%;object-fit:cover;">`;
+  else preview.innerHTML = '🖼️';
 
   const btn = document.querySelector('.form-section button');
   btn.textContent = '💾 Save Edit';
@@ -1400,13 +1489,14 @@ function saveEdit(id) {
   const minStock    = parseInt(document.getElementById('prod-min').value)    || 5;
   const batchNumber = document.getElementById('prod-batch').value.trim();
   const expiryDate  = document.getElementById('prod-expiry').value;
+  const image       = document.getElementById('prod-image-base64').value;
 
   if (!name || isNaN(cost) || cost <= 0 || isNaN(price) || price <= 0 || isNaN(stock) || stock < 0) {
     toast('Fill all fields correctly.', 'error'); return;
   }
   if (cost >= price) { toast('Selling price must be higher than cost price.', 'error'); return; }
 
-  Object.assign(p, { name, category, brand, variant, sku, cost, price, stock, minStock, batchNumber, expiryDate });
+  Object.assign(p, { name, category, brand, variant, sku, cost, price, stock, minStock, batchNumber, expiryDate, image });
   saveCurrentUserData();
   addMovementEntry('Updated', name, `Edited product details. Stock now ${stock}, price ${fmt(price)}.`);
   clearProductForm();
@@ -1420,10 +1510,16 @@ function saveEdit(id) {
 }
 
 function clearProductForm() {
-  ['prod-name','prod-category','prod-brand','prod-variant','prod-sku','prod-cost','prod-price','prod-stock','prod-min','prod-batch','prod-expiry']
-    .forEach(id => { document.getElementById(id).value = ''; });
+  ['prod-name','prod-category','prod-brand','prod-variant','prod-sku',
+   'prod-cost','prod-price','prod-stock','prod-min','prod-batch','prod-expiry',
+   'prod-image','prod-image-base64','prod-image-url']
+    .forEach(id => {
+      const el = document.getElementById(id);
+      if (el) el.value = '';  // ← FIX: null-check before accessing .value
+    });
+  const preview = document.getElementById('image-preview');
+  if (preview) preview.innerHTML = '🖼️';
 }
-
 function saveProducts() { saveCurrentUserData(); }
 
 function renderRestockAlert() {
@@ -1478,6 +1574,11 @@ function renderProducts() {
     return `
       <tr class="${isLow && !isEmpty ? 'row-low' : ''}">
         <td>
+          ${p.image 
+            ? `<img src="${p.image}" class="prod-thumb" alt="${esc(p.name)}">` 
+            : `<div class="prod-thumb" style="display:flex;align-items:center;justify-content:center;font-size:18px;background:var(--surface-2);">📦</div>`}
+        </td>
+        <td>
           <div style="font-weight:600;">${esc(p.name)}</div>
           <div style="font-size:11px;color:var(--muted);margin-top:2px;">${esc(p.sku) || '—'}</div>
           <div style="font-size:11px;color:var(--muted);margin-top:4px;">Batch: ${esc(p.batchNumber) || '—'}</div>
@@ -1530,34 +1631,34 @@ function setSort(val)     { sortBy = val;                    renderProducts(); }
 // ============================================================================
 
 // ← IMPROVED: Supports manual qty/note for Quick Sell Number Pad
+
 function sellProduct(id, manualQty = null, manualNote = null, manualPrice = null) {
-  const qtyInput  = document.getElementById('qty-' + id); // fallback
-  const noteInput = document.getElementById('note-' + id); // fallback
-
-  const qty       = manualQty !== null ? manualQty : parseInt(qtyInput?.value);
-  const note      = manualNote !== null ? manualNote : (noteInput ? noteInput.value.trim() : '');
-  const product   = products.find(p => p.id === id);
-
+  const qtyInput  = document.getElementById('qty-' + id);
+  const noteInput = document.getElementById('note-' + id);
+ 
+  const qty     = manualQty !== null ? manualQty : parseInt(qtyInput?.value);
+  const note    = manualNote !== null ? manualNote : (noteInput ? noteInput.value.trim() : '');
+  const product = products.find(p => p.id === id);
+ 
   if (!product) return;
-  if (isNaN(qty) || qty <= 0)  { toast('Enter a valid quantity.', 'error'); return; }
-  const currentStock = getCurrentStock(product);
-  if (qty > currentStock)     { toast(`Only ${currentStock} units in stock.`, 'error'); return; }
-
-  const sellPrice = (!isNaN(parseFloat(manualPrice))) 
-    ? parseFloat(manualPrice) 
-    : product.price;
-
-  // Warn if selling ≥80% of stock in one transaction
+  if (isNaN(qty) || qty <= 0) { toast('Enter a valid quantity.', 'error'); return; }
+  const currentStock = product.stock;
+  if (qty > currentStock) { toast(`Only ${currentStock} units in stock.`, 'error'); return; }
+ 
+  const sellPrice = (!isNaN(parseFloat(manualPrice))) ? parseFloat(manualPrice) : product.price;
+ 
   if ((qty / currentStock) >= 0.8 && currentStock > 5) {
     const proceed = confirm(`You're selling ${qty} of ${currentStock} units (${Math.round((qty/currentStock)*100)}% of stock). Continue?`);
     if (!proceed) return;
   }
-
+ 
   const total     = qty * sellPrice;
   const totalCost = qty * product.cost;
   const profit    = total - totalCost;
   const date      = new Date().toISOString().split('T')[0];
-
+ 
+  product.stock -= qty;  // ← THE FIX: actually decrement stock
+ 
   transactions.unshift({
     id: Date.now(), date,
     productId: product.id, product: product.name,
@@ -1566,7 +1667,7 @@ function sellProduct(id, manualQty = null, manualNote = null, manualPrice = null
     total, totalCost, profit, note,
     isOverride: sellPrice !== product.price
   });
-
+ 
   if (qtyInput) qtyInput.value = '';
   if (noteInput) noteInput.value = '';
   saveCurrentUserData();
@@ -1738,21 +1839,55 @@ function updateBulkFooter() {
 function confirmBulkSell() {
   const ids = Object.keys(bulkEntries);
   if (!ids.length) return;
-  
+ 
+  const snapshot = createDataSnapshot();
+  const today    = new Date().toISOString().split('T')[0];
+  let successCount = 0;
+ 
   ids.forEach(id => {
-    const pid = parseInt(id);
-    sellProduct(pid, bulkEntries[id], 'End-of-day tally', bulkPriceOverrides[id]);
+    const pid     = parseInt(id);
+    const product = products.find(p => p.id === pid);
+    if (!product) return;
+ 
+    const qty       = bulkEntries[id];
+    const overPrice = bulkPriceOverrides[id];
+    const sellPrice = (!isNaN(parseFloat(overPrice))) ? parseFloat(overPrice) : product.price;
+ 
+    if (qty <= 0 || qty > product.stock) return;
+ 
+    product.stock -= qty;  // mutate directly
+ 
+    transactions.unshift({
+      id: Date.now() + successCount, date: today,
+      productId: product.id, product: product.name,
+      sku: product.sku || '', category: product.category || 'Uncategorized',
+      qty, cost: product.cost, price: sellPrice,
+      total: qty * sellPrice, totalCost: qty * product.cost,
+      profit: (qty * sellPrice) - (qty * product.cost),
+      note: 'End-of-day tally',
+      isOverride: sellPrice !== product.price
+    });
+    successCount++;
   });
-
+ 
+  if (successCount === 0) { toast('No valid items to record.', 'error'); return; }
+ 
+  // ← FIX: single save + single render instead of N saves + N renders
+  saveCurrentUserData();
+  addMovementEntry('Bulk Sell', 'Inventory', `Recorded ${successCount} product(s) in end-of-day tally.`);
+  render();
+ 
   closeBulkSell();
-  toast(`Successfully recorded batch of ${ids.length} sales.`);
+  queueUndo(`Bulk sale of ${successCount} product(s) recorded.`, snapshot);
+  toast(`✓ Recorded ${successCount} product${successCount !== 1 ? 's' : ''} in this tally.`);
 }
 
 function deleteTransaction(id) {
-  const tx       = transactions.find(t => t.id === id);
+  const tx = transactions.find(t => t.id === id);
   if (!tx) return;
   const snapshot = createDataSnapshot();
-  const product  = findProductByRecord(tx);
+  const product = findProductByRecord(tx);
+  if (product) product.stock += tx.qty;  // ← THE FIX: restore stock
   transactions = transactions.filter(t => t.id !== id);
   saveCurrentUserData();
   addMovementEntry('Sale Deleted', getRecordProductName(tx), `Removed sale of ${tx.qty} units and restored stock.`);
@@ -1803,18 +1938,20 @@ function restockProduct(id) {
   const qty       = parseInt(qtyInput.value);
   const cost      = parseFloat(costInput.value);
   const product   = products.find(p => p.id === id);
-
+ 
   if (!product) return;
   if (isNaN(qty)  || qty  <= 0) { toast('Enter a valid quantity.', 'error'); return; }
   if (isNaN(cost) || cost <  0) { toast('Enter a valid cost.',     'error'); return; }
-
+ 
+  product.stock += qty;  // ← THE FIX: actually increment stock
+ 
   restockHistory.unshift({
     id: Date.now(), date: new Date().toISOString().split('T')[0],
     productId: product.id, product: product.name,
     sku: product.sku || '', category: product.category || 'Uncategorized',
     qty, cost, total: qty * cost
   });
-
+ 
   qtyInput.value = ''; costInput.value = '';
   saveCurrentUserData();
   addMovementEntry('Restocked', product.name, `Added ${qty} units at ${fmt(cost)} each.`);
@@ -1823,22 +1960,6 @@ function restockProduct(id) {
   toast(`✓ Restocked ${qty} units of ${product.name}`);
 }
 
-function renderRestockHistory() {
-  const tbody = document.getElementById('restock-body');
-  if (!restockHistory.length) {
-    tbody.innerHTML = '<tr><td colspan="5" class="empty">No restock history yet.</td></tr>';
-    return;
-  }
-  tbody.innerHTML = restockHistory.map(r => `
-    <tr>
-      <td>${r.date}</td>
-      <td>${getRecordProductName(r)}</td>
-      <td>${r.qty} units</td>
-      <td>${fmt(r.cost)} per unit</td>
-      <td style="color:#eab308;font-weight:700;">${fmt(r.total)}</td>
-    </tr>
-  `).join('');
-}
 
 function setDeadStockDays(val) {
   deadStockDays = parseInt(val);
@@ -2392,27 +2513,39 @@ function toast(message, type = 'success', action = null, duration = 2800) {
 function showConfirm(message, onYes) {
   const existing = document.getElementById('confirm-modal');
   if (existing) existing.remove();
-
+ 
   const overlay = document.createElement('div');
   overlay.id = 'confirm-modal';
   overlay.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,0.6);display:flex;align-items:center;justify-content:center;z-index:9998;';
-  overlay.innerHTML = `
-    <div style="background:var(--card-bg);border:1px solid var(--card-border);border-radius:16px;padding:28px 32px;max-width:400px;width:90%;text-align:center;">
-      <div style="font-size:16px;font-weight:600;color:var(--text);margin-bottom:20px;">${message}</div>
-      <div style="display:flex;gap:10px;justify-content:center;">
-        <button onclick="document.getElementById('confirm-modal').remove()"
-          style="padding:10px 24px;border-radius:8px;border:1px solid var(--card-border);background:transparent;color:var(--muted);font-size:14px;font-weight:600;cursor:pointer;">
-          Cancel
-        </button>
-        <button id="confirm-yes"
-          style="padding:10px 24px;border-radius:8px;border:none;background:#D85A30;color:#fff;font-size:14px;font-weight:600;cursor:pointer;">
-          Yes, delete
-        </button>
-      </div>
-    </div>
-  `;
+ 
+  const box = document.createElement('div');
+  box.style.cssText = 'background:var(--card-bg);border:1px solid var(--card-border);border-radius:16px;padding:28px 32px;max-width:400px;width:90%;text-align:center;';
+ 
+  // ← SECURITY FIX: use textContent not innerHTML for the message
+  const msg = document.createElement('div');
+  msg.style.cssText = 'font-size:16px;font-weight:600;color:var(--text);margin-bottom:20px;';
+  msg.textContent = message;  // Safe
+ 
+  const btnRow = document.createElement('div');
+  btnRow.style.cssText = 'display:flex;gap:10px;justify-content:center;';
+ 
+  const cancelBtn = document.createElement('button');
+  cancelBtn.style.cssText = 'padding:10px 24px;border-radius:8px;border:1px solid var(--card-border);background:transparent;color:var(--muted);font-size:14px;font-weight:600;cursor:pointer;';
+  cancelBtn.textContent = 'Cancel';
+  cancelBtn.onclick = () => overlay.remove();
+ 
+  const yesBtn = document.createElement('button');
+  yesBtn.id = 'confirm-yes';
+  yesBtn.style.cssText = 'padding:10px 24px;border-radius:8px;border:none;background:#D85A30;color:#fff;font-size:14px;font-weight:600;cursor:pointer;';
+  yesBtn.textContent = 'Yes, delete';
+  yesBtn.onclick = () => { overlay.remove(); onYes(); };
+ 
+  btnRow.appendChild(cancelBtn);
+  btnRow.appendChild(yesBtn);
+  box.appendChild(msg);
+  box.appendChild(btnRow);
+  overlay.appendChild(box);
   document.body.appendChild(overlay);
-  document.getElementById('confirm-yes').onclick = () => { overlay.remove(); onYes(); };
 }
 
 function clearAllData() {

@@ -1,13 +1,11 @@
-const CACHE     = 'shop-tracker-v1';
-const ASSETS    = [
+const CACHE  = 'shop-tracker-v2';
+const ASSETS = [
   './',
   './index.html',
   './style.css',
-  './script.js',
   './manifest.json'
 ];
-
-// Install — cache all assets
+// Install — cache static assets only
 self.addEventListener('install', e => {
   e.waitUntil(
     caches.open(CACHE).then(cache => cache.addAll(ASSETS))
@@ -25,8 +23,19 @@ self.addEventListener('activate', e => {
   self.clients.claim();
 });
 
-// Fetch — serve from cache, fallback to network
+// Fetch — always fetch JS files fresh from network to avoid stale code
 self.addEventListener('fetch', e => {
+  const url = e.request.url;
+
+  // Always fetch JS and Firebase scripts fresh — never serve from cache
+  if (url.includes('.js') || url.includes('firebasejs') || url.includes('exchangerate-api')) {
+    e.respondWith(
+      fetch(e.request).catch(() => caches.match(e.request))
+    );
+    return;
+  }
+
+  // Everything else: cache-first with network fallback
   e.respondWith(
     caches.match(e.request).then(cached => cached || fetch(e.request))
   );
@@ -35,10 +44,8 @@ self.addEventListener('fetch', e => {
 // Handle notification click to open the app
 self.addEventListener('notificationclick', event => {
   event.notification.close();
-  
   event.waitUntil(
     clients.matchAll({ type: 'window', includeUncontrolled: true }).then(clientList => {
-      // If a window is already open, focus it
       if (clientList.length > 0) {
         let client = clientList[0];
         for (let i = 0; i < clientList.length; i++) {
@@ -46,7 +53,6 @@ self.addEventListener('notificationclick', event => {
         }
         return client.focus();
       }
-      // Otherwise open a new window
       return clients.openWindow('./');
     })
   );

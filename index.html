@@ -351,6 +351,18 @@
           <label for="prod-expiry">Expiry Date</label>
           <input type="date" id="prod-expiry" />
         </div>
+        <div class="form-group">
+          <label for="prod-image">Product Image</label>
+          <div style="display: flex; flex-direction: column; gap: 8px;">
+            <div style="display: flex; gap: 10px; align-items: center;">
+              <div id="image-preview" class="form-image-preview">🖼️</div>
+              <input type="file" id="prod-image" accept="image/*" onchange="handleImageUpload(this)" style="font-size: 11px; flex: 1;" />
+            </div>
+            <input type="text" id="prod-image-url" placeholder="Or paste image URL..." oninput="handleImageUrl(this.value)" 
+              style="min-height:36px; font-size:12px; padding:0 10px; border-radius:8px; border:1px solid var(--card-border); background:var(--input-bg); color:var(--text); outline:none;" />
+            <input type="hidden" id="prod-image-base64" />
+          </div>
+        </div>
       </div>
       <button onclick="addProduct()" style="margin-top:14px;">+ Add Product</button>
     </div>
@@ -380,6 +392,7 @@
       <table>
         <thead>
           <tr>
+            <th>Image</th>
             <th>Product / SKU</th>
             <th>Category</th>
             <th>Brand</th>
