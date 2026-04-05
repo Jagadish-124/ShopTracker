@@ -1503,7 +1503,7 @@ function sellProduct(id, manualQty = null, manualNote = null) {
     total, totalCost, profit, note
   });
 
-  qtyInput.value = '';
+  if (qtyInput) qtyInput.value = '';
   if (noteInput) noteInput.value = '';
   saveCurrentUserData();
   addMovementEntry('Sold', product.name, `Sold ${qty} units for ${fmt(total)}${note ? ` — note: ${note}` : ''}.`);
@@ -1563,6 +1563,7 @@ function qsBack() {
 }
 
 function confirmQuickSell() {
+  if (activeQuickSellId === null) return;
   const qty = parseInt(quickSellQty);
   if (qty <= 0) { toast('Enter a quantity greater than 0.', 'error'); return; }
   const note = document.getElementById('qs-note')?.value?.trim() || '';
@@ -2575,13 +2576,14 @@ function csvBuildPreview() {
 
 function csvSetPhase(phase) {
   csvState.phase = phase;
-  document.getElementById('csv-phase-upload').style.display  = phase === 'upload'  ? 'flex' : 'none';
-  document.getElementById('csv-phase-map').style.display     = phase === 'map'     ? 'block' : 'none';
-  document.getElementById('csv-phase-preview').style.display = phase === 'preview' ? 'flex' : 'none';
-  const uploadEl = document.getElementById('csv-phase-upload');
-  if (uploadEl) { uploadEl.style.flexDirection = 'column'; uploadEl.style.gap = '16px'; }
-  const previewEl = document.getElementById('csv-phase-preview');
-  if (previewEl) { previewEl.style.flexDirection = 'column'; previewEl.style.gap = '14px'; }
+  const pUpload = document.getElementById('csv-phase-upload');
+  const pMap = document.getElementById('csv-phase-map');
+  const pPreview = document.getElementById('csv-phase-preview');
+  
+  if (pUpload) { pUpload.style.display = phase === 'upload' ? 'flex' : 'none'; pUpload.style.flexDirection = 'column'; pUpload.style.gap = '16px'; }
+  if (pMap) { pMap.style.display = phase === 'map' ? 'block' : 'none'; }
+  if (pPreview) { pPreview.style.display = phase === 'preview' ? 'flex' : 'none'; pPreview.style.flexDirection = 'column'; pPreview.style.gap = '14px'; }
+
   const phaseIdx = { upload:0, map:1, preview:2, done:3 }[phase] ?? 0;
   ['csv-step-1','csv-step-2','csv-step-3','csv-step-4'].forEach((id,i) => {
     const el = document.getElementById(id); if (!el) return;
