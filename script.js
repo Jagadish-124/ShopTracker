@@ -1,3 +1,6 @@
+// Change this to your registered email address
+const CREATOR_EMAIL = "jagad@example.com"; 
+
 let currency = 'INR';
 let baseCurrency = 'INR';
 let exchangeRates = JSON.parse(localStorage.getItem('exchangeRates')) || null;
@@ -1169,6 +1172,18 @@ function renderDashboard() {
   document.getElementById('kpi-sold').textContent    = todayTxns.reduce((s,t)=>s+t.qty, 0);
   document.getElementById('kpi-revenue').textContent = fmt(todayTxns.reduce((s,t)=>s+t.total, 0));
   document.getElementById('kpi-profit').textContent  = fmt(todayTxns.reduce((s,t)=>s+t.profit, 0));
+
+  // Check for Creator Access
+  const creatorKpi = document.getElementById('creator-kpi');
+  if (currentUser && currentUser.email === CREATOR_EMAIL) {
+    if (creatorKpi) creatorKpi.style.display = 'flex';
+    fbGetUserCount().then(count => {
+      const valEl = document.getElementById('kpi-total-users');
+      if (valEl) valEl.textContent = count;
+    }).catch(err => console.warn("Admin fetch failed (Check Firestore Rules):", err));
+  } else {
+    if (creatorKpi) creatorKpi.style.display = 'none';
+  }
 
   const grouped = {};
   transactions.forEach(t => {

@@ -88,9 +88,14 @@ function fbSubscribeUserData(uid, onUpdate) {
   }, error => console.error("Snapshot error:", error));
 }
 
+async function fbGetUserCount() {
+  const snapshot = await fbDb.collection('users').count().get();
+  return snapshot.data().count;
+}
+
 Object.assign(window, {
   fbSignUp, fbSignIn, fbSignOut, fbResendVerification,
   fbResetPassword, fbReloadUser, fbCurrentUser,
   fbOnAuthStateChanged, fbLoadUserData, fbSaveUserData, fbSubscribeUserData,
-  fbDeleteAccount
+  fbDeleteAccount, fbGetUserCount
 });
