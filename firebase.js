@@ -83,7 +83,12 @@ async function fbLoadUserData(uid) {
 }
 
 async function fbSaveUserData(uid, data) {
-  await userDataDoc(uid).set({ ...data, updatedAt: firebase.firestore.FieldValue.serverTimestamp() });
+  // Strip undefined values which Firestore doesn't support
+  const cleanData = JSON.parse(JSON.stringify(data));
+  await userDataDoc(uid).set({ 
+    ...cleanData, 
+    updatedAt: firebase.firestore.FieldValue.serverTimestamp() 
+  });
 }
 
 function fbSubscribeUserData(uid, onUpdate) {
@@ -93,8 +98,15 @@ function fbSubscribeUserData(uid, onUpdate) {
 }
 
 async function fbGetUserCount() {
-  const snapshot = await fbDb.collection('users').count().get();
-  return snapshot.data().count;
+  try {
+    // If your environment supports the newer aggregation API:
+    const snapshot = await fbDb.collection('users').count().get();
+    return snapshot.data().count;
+  } catch (e) {
+    // Fallback for older v8 Compat environments
+    const snapshot = await fbDb.collection('users').get();
+    return snapshot.size;
+  }
 }
 
 async function fbGetAllUsers() {

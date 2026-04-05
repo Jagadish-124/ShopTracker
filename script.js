@@ -106,6 +106,14 @@ function getMillis(ts) {
   return new Date(ts).getTime() || 0;
 }
 
+/** Helper to prevent XSS by escaping HTML entities */
+function esc(str) {
+  if (typeof str !== 'string') return str;
+  const p = document.createElement('p');
+  p.textContent = str;
+  return p.innerHTML;
+}
+
 function applyUserData(data) {
   if (!data) return;
   _lastSyncedAt        = getMillis(data.updatedAt);
@@ -120,7 +128,10 @@ function applyUserData(data) {
   notificationSettings = data.notificationSettings || { enabled: false, lowStock: true, goal: true, dailySummary: true };
 
   hydrateProductLinks();
-  nextProdId = Math.max(Date.now(), ...products.map(p => Number(p.id) || 0)) + 1;
+  
+  // Safer way to calculate max ID without spread limits
+  const maxId = products.reduce((max, p) => Math.max(max, Number(p.id) || 0), 0);
+  nextProdId = Math.max(Date.now(), maxId) + 1;
 
   const sel = document.getElementById('currency-select');
   if (sel) sel.value = currency;
@@ -145,8 +156,10 @@ function saveCurrentUserData(immediate = false) {
   if (!currentUser) return Promise.resolve();
 
   // If offline — queue immediately without attempting Firestore
+  const payload = buildDataPayload();
+
   if (!_isOnline) {
-    _queuePendingSave(buildDataPayload());
+    _queuePendingSave(payload);
     updateSaveStatus('queued');
     return Promise.resolve();
   }
@@ -155,7 +168,7 @@ function saveCurrentUserData(immediate = false) {
     clearTimeout(_saveDebounceTimer);
     _saveDebounceTimer = null;
     updateSaveStatus('saving');
-    return fbSaveUserData(currentUser.uid, buildDataPayload())
+    return fbSaveUserData(currentUser.uid, payload)
       .then(() => {
         _clearPendingSave();
         updateSaveStatus('saved');
@@ -167,7 +180,7 @@ function saveCurrentUserData(immediate = false) {
           return;
         }
 
-        _queuePendingSave(buildDataPayload());
+        _queuePendingSave(payload);
         updateSaveStatus('error');
         
         const msg = e.code === 'resource-exhausted' 
@@ -185,7 +198,7 @@ function saveCurrentUserData(immediate = false) {
     _saveDebounceTimer = setTimeout(async () => {
       if (!currentUser) { resolve(); return; }
       try {
-        await fbSaveUserData(currentUser.uid, buildDataPayload());
+        await fbSaveUserData(currentUser.uid, payload);
         _clearPendingSave();
         updateSaveStatus('saved');
       } catch(e) {
@@ -195,7 +208,7 @@ function saveCurrentUserData(immediate = false) {
           return;
         }
 
-        _queuePendingSave(buildDataPayload());
+        _queuePendingSave(payload);
         updateSaveStatus('error');
         
         const msg = e.code === 'resource-exhausted' 
@@ -1193,8 +1206,8 @@ function renderDashboard() {
           const joined = u.createdAt ? new Date(getMillis(u.createdAt)).toLocaleDateString() : '—';
           return `
             <tr>
-              <td style="font-weight:600;">${u.name || 'Anonymous'}</td>
-              <td style="color:var(--muted); font-size:12px;">${u.email}</td>
+              <td style="font-weight:600;">${esc(u.name) || 'Anonymous'}</td>
+              <td style="color:var(--muted); font-size:12px;">${esc(u.email)}</td>
               <td style="font-size:12px;">${lastLog}</td>
               <td style="font-size:12px; color:var(--muted);">${joined}</td>
             </tr>
@@ -1463,14 +1476,14 @@ function renderProducts() {
     return `
       <tr class="${isLow && !isEmpty ? 'row-low' : ''}">
         <td>
-          <div style="font-weight:600;">${p.name}</div>
-          <div style="font-size:11px;color:var(--muted);margin-top:2px;">${p.sku || '—'}</div>
-          <div style="font-size:11px;color:var(--muted);margin-top:4px;">Batch: ${p.batchNumber || '—'}</div>
+          <div style="font-weight:600;">${esc(p.name)}</div>
+          <div style="font-size:11px;color:var(--muted);margin-top:2px;">${esc(p.sku) || '—'}</div>
+          <div style="font-size:11px;color:var(--muted);margin-top:4px;">Batch: ${esc(p.batchNumber) || '—'}</div>
           <div style="margin-top:6px;">${expiryMarkup}</div>
         </td>
-        <td><span class="badge" style="background:rgba(124,106,247,0.12);color:#7c6af7;">${p.category||'Uncategorized'}</span></td>
-        <td style="color:var(--muted);font-size:13px;">${p.brand||'—'}</td>
-        <td style="color:var(--muted);font-size:13px;">${p.variant||'—'}</td>
+        <td><span class="badge" style="background:rgba(124,106,247,0.12);color:#7c6af7;">${esc(p.category)||'Uncategorized'}</span></td>
+        <td style="color:var(--muted);font-size:13px;">${esc(p.brand)||'—'}</td>
+        <td style="color:var(--muted);font-size:13px;">${esc(p.variant)||'—'}</td>
         <td>${fmt(p.cost)}</td>
         <td>${fmt(p.price)}</td>
         <td><span class="badge income">${margin}% margin</span></td>
@@ -1764,10 +1777,10 @@ function renderTransactions() {
     <tr>
       <td>${t.date}</td>
       <td>
-        <div style="font-weight:600;">${getRecordProductName(t)}</div>
-        ${t.sku ? `<div style="font-size:11px;color:var(--muted);margin-top:2px;">${t.sku}</div>` : ''}
+        <div style="font-weight:600;">${esc(getRecordProductName(t))}</div>
+        ${t.sku ? `<div style="font-size:11px;color:var(--muted);margin-top:2px;">${esc(t.sku)}</div>` : ''}
         ${t.isOverride ? `<span class="badge warning" style="margin-top:4px; font-size:9px; padding: 2px 6px;">Custom Price</span>` : ''}
-        ${t.note ? `<div style="font-size:12px;color:var(--muted);margin-top:2px;">📝 ${t.note}</div>` : ''}
+        ${t.note ? `<div style="font-size:12px;color:var(--muted);margin-top:2px;">📝 ${esc(t.note)}</div>` : ''}
       </td>
       <td>${t.qty}</td>
       <td>${fmt(t.price)}</td>
