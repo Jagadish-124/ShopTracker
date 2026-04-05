@@ -435,11 +435,6 @@ function initOfflineDetection() {
   if (_isOnline) flushPendingSave();
 }
 
-function getUserStorageKey() {}
-function getUserValue()      {}
-function setUserValue()      {}
-function removeUserValue()   {}
-
 // ============================================================================
 // VIEW MANAGEMENT
 // ============================================================================
@@ -942,14 +937,6 @@ async function handleAuthChange(fbUser) {
     updateAuthUI(fbUser);
   }
 }
-    // If it's a fresh login or a re-auth, complete the setup
-    if (isNewUser) {
-      await completeLogin(fbUser);
-    } else {
-      // Token was simply refreshed or verified; update UI but don't re-init everything
-      updateAuthUI(fbUser);
-    }
-
 
 // ============================================================================
 // CURRENCY & EXCHANGE RATES
