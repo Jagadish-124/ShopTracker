@@ -5,6 +5,7 @@ let ratesUpdatedAt = localStorage.getItem('ratesUpdatedAt') || null;
 let products = [];
 let transactions = [];
 let searchQuery = '';
+let txnSearchQuery = '';
 let filterCategory = 'all';
 let sortBy = 'none';
 let nextProdId = Date.now() + 1;
@@ -1465,6 +1466,7 @@ function updateCategoryFilter() {
 }
 
 function setSearch(val)   { searchQuery = val.toLowerCase(); renderProducts(); }
+function setTxnSearch(val) { txnSearchQuery = val.toLowerCase(); renderTransactions(); renderDateStats(); }
 function setCategory(val) { filterCategory = val;            renderProducts(); }
 function setSort(val)     { sortBy = val;                    renderProducts(); }
 
@@ -1706,6 +1708,12 @@ function deleteTransaction(id) {
 function renderTransactions() {
   const tbody    = document.getElementById('txn-body');
   const filtered = getFilteredTransactions();
+  const countBadge = document.getElementById('txn-count-badge');
+
+  if (countBadge) {
+    countBadge.textContent = filtered.length;
+    countBadge.style.display = (txnSearchQuery || dateFrom || dateTo) ? 'inline-flex' : 'none';
+  }
 
   if (!filtered.length) {
     tbody.innerHTML = '<tr><td colspan="7" class="empty">No transactions found.</td></tr>';
@@ -1921,11 +1929,13 @@ function setDateFrom(val) { dateFrom = val; renderTransactions(); renderDateStat
 function setDateTo(val)   { dateTo   = val; renderTransactions(); renderDateStats(); }
 
 function clearDateFilter() {
-  dateFrom = ''; dateTo = '';
+  dateFrom = ''; dateTo = ''; txnSearchQuery = '';
   const f1 = document.getElementById('date-from');
   const t1 = document.getElementById('date-to');
+  const s1 = document.getElementById('txn-search-input');
   if (f1) f1.value = '';
   if (t1) t1.value = '';
+  if (s1) s1.value = '';
   renderTransactions();
   renderDateStats();
 }
@@ -1934,6 +1944,11 @@ function getFilteredTransactions() {
   return transactions.filter(t => {
     if (dateFrom && t.date < dateFrom) return false;
     if (dateTo   && t.date > dateTo)   return false;
+    if (txnSearchQuery) {
+      const name = getRecordProductName(t).toLowerCase();
+      const sku = (t.sku || '').toLowerCase();
+      if (!name.includes(txnSearchQuery) && !sku.includes(txnSearchQuery)) return false;
+    }
     return true;
   });
 }

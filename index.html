@@ -398,9 +398,17 @@
     </div>
 
     <!-- Sales Transactions — home only -->
-    <div class="section-title" data-view="home">Sales Transactions</div>
+    <div class="section-title" data-view="home">
+      Sales Transactions
+      <span id="txn-count-badge" class="dead-count-badge" style="background:rgba(124,106,247,0.2);color:#7c6af7;display:none;">0</span>
+    </div>
     <!-- Date filter lives inside home view too -->
     <div class="date-filter-bar" data-view="home">
+      <div class="search-group" style="flex: 1; min-width: 250px;">
+        <span class="search-icon">🔍</span>
+        <input type="text" id="txn-search-input" placeholder="Search by product or SKU..." 
+          oninput="setTxnSearch(this.value)" style="height:36px; padding:0 12px 0 36px; min-height:36px;" />
+      </div>
       <div style="display:flex;align-items:center;gap:8px;">
         <span style="font-size:13px;color:var(--muted);font-weight:600;">FROM</span>
         <input type="date" id="date-from" onchange="setDateFrom(this.value)"
