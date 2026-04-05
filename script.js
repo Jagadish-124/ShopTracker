@@ -1021,7 +1021,7 @@ async function sendBrowserNotification(title, body, tag) {
 function notifyImportantEvents(force = false) {
   if (!notificationSettings.enabled || !currentUser) return;
   const today         = new Date().toISOString().split('T')[0];
-  const lowStockItems = products.filter(p => p.stock <= p.minStock);
+  const lowStockItems = products.filter(p => getCurrentStock(p) <= p.minStock);
   const expiringItems = products.filter(p => { const d = getDaysToExpiry(p.expiryDate); return d !== null && d >= 0 && d <= 30; });
   const todayProfit   = transactions.filter(t => t.date === today).reduce((s, t) => s + t.profit, 0);
 
@@ -1243,6 +1243,13 @@ function renderDashboard() {
 // PRODUCTS MANAGEMENT
 // ============================================================================
 
+function getCurrentStock(p) {
+  if (!p) return 0;
+  const sales = transactions.filter(t => matchesProductRecord(t, p)).reduce((sum, t) => sum + t.qty, 0);
+  const restocks = restockHistory.filter(r => matchesProductRecord(r, p)).reduce((sum, r) => sum + r.qty, 0);
+  return parseInt(p.stock || 0) + restocks - sales;
+}
+
 // ← IMPROVED: duplicate name check + unique SKU guarantee
 function addProduct() {
   const name        = document.getElementById('prod-name').value.trim();
@@ -1362,12 +1369,12 @@ function clearProductForm() {
 function saveProducts() { saveCurrentUserData(); }
 
 function renderRestockAlert() {
-  const lowItems = products.filter(p => p.stock <= p.minStock);
+  const lowItems = products.filter(p => getCurrentStock(p) <= p.minStock);
   const banner   = document.getElementById('restock-banner');
   if (!lowItems.length) { banner.style.display = 'none'; return; }
   banner.style.display = 'flex';
   document.getElementById('restock-list').innerHTML = lowItems.map(p =>
-    `<span class="restock-tag">${p.name} — ${p.stock} left</span>`
+    `<span class="restock-tag">${p.name} — ${getCurrentStock(p)} left</span>`
   ).join('');
 }
 
@@ -1378,8 +1385,8 @@ function renderProducts() {
   let list = [...products];
   if (searchQuery)              list = list.filter(p => p.name.toLowerCase().includes(searchQuery));
   if (filterCategory !== 'all') list = list.filter(p => (p.category || 'Uncategorized') === filterCategory);
-  if (sortBy === 'stock-asc')   list.sort((a,b) => a.stock - b.stock);
-  if (sortBy === 'stock-desc')  list.sort((a,b) => b.stock - a.stock);
+  if (sortBy === 'stock-asc')   list.sort((a,b) => getCurrentStock(a) - getCurrentStock(b));
+  if (sortBy === 'stock-desc')  list.sort((a,b) => getCurrentStock(b) - getCurrentStock(a));
   if (sortBy === 'price-asc')   list.sort((a,b) => a.price - b.price);
   if (sortBy === 'price-desc')  list.sort((a,b) => b.price - a.price);
 
@@ -1390,9 +1397,10 @@ function renderProducts() {
   }
 
   tbody.innerHTML = list.map(p => {
+    const currentStock = getCurrentStock(p);
     const margin       = (((p.price - p.cost) / p.price) * 100).toFixed(1);
-    const isLow        = p.stock <= p.minStock;
-    const isEmpty      = p.stock === 0;
+    const isLow        = currentStock <= p.minStock;
+    const isEmpty      = currentStock <= 0;
     const daysToExpiry = getDaysToExpiry(p.expiryDate);
 
     const expiryMarkup = daysToExpiry === null
@@ -1406,8 +1414,8 @@ function renderProducts() {
     const stockBadge = isEmpty
       ? `<span class="badge expense">Out of stock</span>`
       : isLow
-      ? `<span class="badge danger pulse">${p.stock} units — Low</span>`
-      : `<span class="badge income">${p.stock} units</span>`;
+      ? `<span class="badge danger pulse">${currentStock} units — Low</span>`
+      : `<span class="badge income">${currentStock} units</span>`;
 
     return `
       <tr class="${isLow && !isEmpty ? 'row-low' : ''}">
@@ -1473,11 +1481,12 @@ function sellProduct(id, manualQty = null, manualNote = null) {
 
   if (!product) return;
   if (isNaN(qty) || qty <= 0)  { toast('Enter a valid quantity.', 'error'); return; }
-  if (qty > product.stock)     { toast(`Only ${product.stock} units in stock.`, 'error'); return; }
+  const currentStock = getCurrentStock(product);
+  if (qty > currentStock)     { toast(`Only ${currentStock} units in stock.`, 'error'); return; }
 
   // Warn if selling ≥80% of stock in one transaction
-  if ((qty / product.stock) >= 0.8 && product.stock > 5) {
-    const proceed = confirm(`You're selling ${qty} of ${product.stock} units (${Math.round((qty/product.stock)*100)}% of stock). Continue?`);
+  if ((qty / currentStock) >= 0.8 && currentStock > 5) {
+    const proceed = confirm(`You're selling ${qty} of ${currentStock} units (${Math.round((qty/currentStock)*100)}% of stock). Continue?`);
     if (!proceed) return;
   }
 
@@ -1486,7 +1495,6 @@ function sellProduct(id, manualQty = null, manualNote = null) {
   const profit    = total - totalCost;
   const date      = new Date().toISOString().split('T')[0];
 
-  product.stock -= qty;
   transactions.unshift({
     id: Date.now(), date,
     productId: product.id, product: product.name,
@@ -1517,7 +1525,7 @@ function openQuickSell(id) {
   const noteInput = document.getElementById('qs-note');
 
   if (nameDisplay) nameDisplay.textContent = p.name;
-  if (stockDisplay) stockDisplay.textContent = `Stock: ${p.stock} units`;
+  if (stockDisplay) stockDisplay.textContent = `Stock: ${getCurrentStock(p)} units`;
   if (display) display.textContent = '0';
   if (noteInput) noteInput.value = '';
 
@@ -1567,7 +1575,6 @@ function deleteTransaction(id) {
   if (!tx) return;
   const snapshot = createDataSnapshot();
   const product  = findProductByRecord(tx);
-  if (product) product.stock += tx.qty;
   transactions = transactions.filter(t => t.id !== id);
   saveCurrentUserData();
   addMovementEntry('Sale Deleted', getRecordProductName(tx), `Removed sale of ${tx.qty} units and restored stock.`);
@@ -1616,7 +1623,6 @@ function restockProduct(id) {
   if (isNaN(qty)  || qty  <= 0) { toast('Enter a valid quantity.', 'error'); return; }
   if (isNaN(cost) || cost <  0) { toast('Enter a valid cost.',     'error'); return; }
 
-  product.stock += qty;
   restockHistory.unshift({
     id: Date.now(), date: new Date().toISOString().split('T')[0],
     productId: product.id, product: product.name,
@@ -1667,18 +1673,21 @@ function renderDeadStock() {
 
   const deadList = products.filter(product => {
     if (reviewedProducts.includes(product.id)) return false;
+    const currentStock = getCurrentStock(product);
     const lastSale = transactions
       .filter(tx => matchesProductRecord(tx, product))
       .sort((a,b) => new Date(b.date) - new Date(a.date))[0];
-    if (!lastSale) return product.stock > 0;
-    return Math.floor((today - new Date(lastSale.date)) / 86400000) >= deadStockDays && product.stock > 0;
+    if (!lastSale) return currentStock > 0;
+    return Math.floor((today - new Date(lastSale.date)) / 86400000) >= deadStockDays && currentStock > 0;
   }).map(product => {
+    const currentStock = getCurrentStock(product);
     const lastSale = transactions
       .filter(tx => matchesProductRecord(tx, product))
       .sort((a,b) => new Date(b.date) - new Date(a.date))[0];
     return { ...product, lastSale: lastSale?.date || null,
       daysSince: lastSale ? Math.floor((today - new Date(lastSale.date)) / 86400000) : null,
-      idleValue: product.stock * product.cost };
+      idleValue: currentStock * product.cost,
+      currentStock };
   });
 
   countEl.textContent = deadList.length;
@@ -1694,7 +1703,7 @@ function renderDeadStock() {
         <div style="font-size:12px;color:var(--muted);">${p.category || 'Uncategorized'}</div>
       </td>
       <td><span class="badge danger">${p.daysSince === null ? 'Never sold' : `${p.daysSince} days ago`}</span></td>
-      <td>${p.stock} units</td>
+      <td>${p.currentStock} units</td>
       <td style="color:#eab308;font-weight:700;">${fmt(p.idleValue)}</td>
       <td><button class="reviewed-btn" onclick="markReviewed(${p.id})">✓ Mark reviewed</button></td>
     </tr>
@@ -2064,13 +2073,13 @@ function exportPDF() {
   const todayDate = new Date();
   const deadList  = products.filter(p => {
     const ls = transactions.filter(tx=>matchesProductRecord(tx,p)).sort((a,b)=>new Date(b.date)-new Date(a.date))[0];
-    if (!ls) return p.stock > 0;
-    return Math.floor((todayDate-new Date(ls.date))/86400000) >= deadStockDays && p.stock > 0;
+    if (!ls) return getCurrentStock(p) > 0;
+    return Math.floor((todayDate-new Date(ls.date))/86400000) >= deadStockDays && getCurrentStock(p) > 0;
   });
 
   if (deadList.length) {
     doc.setFontSize(11); doc.setFont('helvetica','bold'); doc.setTextColor(...dark); doc.text('Dead Stock',14,doc.lastAutoTable.finalY+14);
-    doc.autoTable({ startY:doc.lastAutoTable.finalY+18, head:[['Product','Stock','Idle Value']], body:deadList.map(p=>[p.name,`${p.stock} units`,fmt(p.stock*p.cost)]), headStyles:{fillColor:[216,90,48],textColor:255,fontStyle:'bold'}, bodyStyles:{textColor:dark}, margin:{left:14,right:14} });
+    doc.autoTable({ startY:doc.lastAutoTable.finalY+18, head:[['Product','Stock','Idle Value']], body:deadList.map(p=>[p.name,`${getCurrentStock(p)} units`,fmt(getCurrentStock(p)*p.cost)]), headStyles:{fillColor:[216,90,48],textColor:255,fontStyle:'bold'}, bodyStyles:{textColor:dark}, margin:{left:14,right:14} });
   }
 
   doc.setFontSize(9); doc.setTextColor(150,150,150); doc.text('Generated by Shop Tracker',14,290);
