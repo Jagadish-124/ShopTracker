@@ -2392,9 +2392,12 @@ document.addEventListener('keydown', event => {
 
   const qsModal = document.getElementById('quick-sell-modal');
   if (qsModal && qsModal.style.display !== 'none') {
-    if (event.key >= '0' && event.key <= '9') { qsAdd(parseInt(event.key)); return; }
-    if (event.key === 'Backspace') { qsBack(); return; }
+    const isInput = event.target.tagName === 'INPUT' || event.target.tagName === 'TEXTAREA';
     if (event.key === 'Enter') { confirmQuickSell(); return; }
+    if (!isInput) {
+      if (event.key >= '0' && event.key <= '9') { qsAdd(parseInt(event.key)); return; }
+      if (event.key === 'Backspace') { qsBack(); return; }
+    }
   }
 
   if (event.key === 'Enter') {
