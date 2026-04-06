@@ -1877,14 +1877,14 @@ function confirmBulkSell() {
 }
 
 function deleteTransaction(id) {
-  const tx = transactions.find(t => t.id === id);
+  const tx = transactions.find(t => t.id == id);
   if (!tx) return;
   const snapshot = createDataSnapshot();
   const product = findProductByRecord(tx);
   if (product) {
     product.stock += tx.qty;
   }
-  transactions = transactions.filter(t => t.id !== id);
+  transactions = transactions.filter(t => t.id != id);
   saveCurrentUserData();
   addMovementEntry(
     'Sale Deleted',
@@ -1975,7 +1975,12 @@ function setDeadStockDays(val) {
 }
 
 function markReviewed(id) {
-  if (!reviewedProducts.includes(id)) { reviewedProducts.push(id); saveCurrentUserData(); }
+  if (!reviewedProducts.includes(id)) { 
+    const snapshot = createDataSnapshot();
+    reviewedProducts.push(id); 
+    saveCurrentUserData(); 
+    queueUndo('Product marked as reviewed (removed from dead stock).', snapshot);
+  }
   renderDeadStock();
 }
 
