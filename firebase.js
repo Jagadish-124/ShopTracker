@@ -17,20 +17,55 @@ firebase.initializeApp(firebaseConfig);
 const fbAuth = firebase.auth();
 const fbDb   = firebase.firestore();
 
-fbDb.enablePersistence({ synchronizeTabs: true }).catch(() => {});
+// FIX #57: Catch persistence errors gracefully and log the reason
+fbDb.enablePersistence({ synchronizeTabs: true }).catch(err => {
+  // err.code === 'failed-precondition' → multiple tabs open
+  // err.code === 'unimplemented'       → browser doesn't support it
+  console.warn('Firestore persistence unavailable:', err.code);
+});
 
 function userDoc(uid)     { return fbDb.collection('users').doc(uid); }
 function userDataDoc(uid) { return fbDb.collection('userData').doc(uid); }
 
+// ── Input validation helpers ─────────────────────────────────────────────────
+
+// FIX #58: Centralised UID whitelist validation — Firestore UIDs are
+// alphanumeric + limited punctuation; reject anything else to
+// prevent path traversal attacks on collection().doc(uid).
+function assertValidUid(uid) {
+  if (!uid || typeof uid !== 'string' || uid.length > 128 || !/^[\w-]+$/.test(uid)) {
+    throw new Error('Invalid UID');
+  }
+}
+
+// FIX #59: Max payload size guard — prevent writing enormous documents
+// that would exhaust the free Firestore quota for other users.
+const MAX_PAYLOAD_BYTES = 900_000; // Firestore 1 MB doc limit with safety margin
+function assertPayloadSize(data) {
+  const approxBytes = JSON.stringify(data).length;
+  if (approxBytes > MAX_PAYLOAD_BYTES) {
+    throw new Error(
+      `Data payload is too large (${Math.round(approxBytes / 1024)} KB). ` +
+      'Please reduce the number of products or transactions before saving.'
+    );
+  }
+}
+
 // ── Auth ─────────────────────────────────────────────────────────────────────
 
 async function fbSignUp(email, password, displayName) {
+  // FIX #60: Trim and validate display name before sending to Firebase
+  const safeName = String(displayName || '').trim().slice(0, 100);
+  if (!safeName) throw Object.assign(new Error('Display name required'), { code: 'auth/invalid-display-name' });
+
   const cred = await fbAuth.createUserWithEmailAndPassword(email, password);
   const user = cred.user;
-  await user.updateProfile({ displayName });
+  await user.updateProfile({ displayName: safeName });
   await user.sendEmailVerification();
+
+  // FIX #61: Use set with merge:false to ensure a fresh user document
   await userDoc(user.uid).set({
-    name: displayName, email: user.email,
+    name: safeName, email: user.email,
     createdAt: firebase.firestore.FieldValue.serverTimestamp(),
     lastLogin: firebase.firestore.FieldValue.serverTimestamp()
   });
@@ -46,9 +81,10 @@ async function fbSignUp(email, password, displayName) {
 
 async function fbSignIn(email, password) {
   const cred = await fbAuth.signInWithEmailAndPassword(email, password);
-  await userDoc(cred.user.uid).set({ 
+  // FIX #62: Use merge:true and only update non-sensitive fields on login
+  await userDoc(cred.user.uid).set({
     lastLogin: firebase.firestore.FieldValue.serverTimestamp(),
-    email: cred.user.email
+    email: cred.user.email           // keep email current in case it was updated
   }, { merge: true });
   return { user: cred.user };
 }
@@ -63,16 +99,17 @@ function fbOnAuthStateChanged(cb)     { return fbAuth.onAuthStateChanged(cb); }
 async function fbDeleteAccount(password) {
   const user = fbAuth.currentUser;
   if (!user) throw new Error('No user signed in.');
-  // Re-authenticate before destructive action
+
   const credential = firebase.auth.EmailAuthProvider.credential(user.email, password);
   await user.reauthenticateWithCredential(credential);
-  
-  // Await Firestore deletes while the user is still authenticated 
-  // so security rules allow the operation.
+
   const uid = user.uid;
+  // FIX #63: Validate UID before using in Firestore paths
+  assertValidUid(uid);
+
   await Promise.all([
-    userDataDoc(uid).delete(), // Wipe all private inventory/transactions
-    userDoc(uid).set({         // Soft delete: Anonymize the profile
+    userDataDoc(uid).delete(),
+    userDoc(uid).set({
       name: 'Deleted User',
       email: null,
       status: 'deleted',
@@ -80,48 +117,68 @@ async function fbDeleteAccount(password) {
     }, { merge: true })
   ]).catch(err => console.warn("Cleanup failed, but proceeding with auth deletion:", err));
 
-  // Delete the auth account — this is the critical step
   await user.delete();
 }
 
 // ── Firestore data ────────────────────────────────────────────────────────────
 
 async function fbLoadUserData(uid) {
+  // FIX #64: Validate UID before path construction
+  assertValidUid(uid);
   const snap = await userDataDoc(uid).get();
   return snap.exists ? snap.data() : null;
 }
 
 async function fbSaveUserData(uid, data) {
-  // Strip undefined values which Firestore doesn't support
+  // FIX #65: Validate UID + enforce payload size limit before writing
+  assertValidUid(uid);
+
+  // Strip undefined values (Firestore doesn't support them)
   const cleanData = JSON.parse(JSON.stringify(data));
-  await userDataDoc(uid).set({ 
-    ...cleanData, 
-    updatedAt: firebase.firestore.FieldValue.serverTimestamp() 
+
+  // Validate payload size — throw a user-friendly error before hitting Firestore limits
+  assertPayloadSize(cleanData);
+
+  await userDataDoc(uid).set({
+    ...cleanData,
+    updatedAt: firebase.firestore.FieldValue.serverTimestamp()
   });
 }
 
 function fbSubscribeUserData(uid, onUpdate) {
-  return userDataDoc(uid).onSnapshot({ includeMetadataChanges: true }, snap => { 
-    if (snap.exists) onUpdate(snap.data(), snap.metadata); 
-  }, error => console.error("Snapshot error:", error));
+  // FIX #66: Validate UID before subscribing
+  assertValidUid(uid);
+  return userDataDoc(uid).onSnapshot(
+    { includeMetadataChanges: true },
+    snap => { if (snap.exists) onUpdate(snap.data(), snap.metadata); },
+    error => console.error("Snapshot error:", error)
+  );
 }
 
+// ── Admin functions (creator only) ───────────────────────────────────────────
+
 async function fbGetUserCount() {
+  // FIX #67: Prefer the cheaper aggregation API; fall back gracefully
   try {
-    // If your environment supports the newer aggregation API:
     const snapshot = await fbDb.collection('users').count().get();
     return snapshot.data().count;
   } catch (e) {
-    // Fallback for older v8 Compat environments
+    // Fallback for environments without aggregation support
     const snapshot = await fbDb.collection('users').get();
     return snapshot.size;
   }
 }
 
 async function fbGetAllUsers() {
-  const snapshot = await fbDb.collection('users').orderBy('lastLogin', 'desc').get();
+  // FIX #68: Limit the number of user records returned to avoid huge reads
+  const snapshot = await fbDb.collection('users')
+    .orderBy('lastLogin', 'desc')
+    .limit(500)            // reasonable cap; adjust if the user base grows
+    .get();
   return snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
 }
+
+// ── Expose to global scope ────────────────────────────────────────────────────
 
 Object.assign(window, {
   fbSignUp, fbSignIn, fbSignOut, fbResendVerification,
