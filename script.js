@@ -1196,7 +1196,6 @@ function queueUndo(message, snapshot, type = 'info') {
     clearTimeout(pendingUndoTimer);
     pendingUndoTimer = null;
   }
- 
   toast(message, type, {
     label: 'Undo',
     onClick: () => {
@@ -1208,7 +1207,6 @@ function queueUndo(message, snapshot, type = 'info') {
       toast('Action undone — all values restored.', 'success');
     }
   }, 12000); // 12 seconds to give user time to react
-
   pendingUndoTimer = setTimeout(() => { pendingUndoTimer = null; }, 12000);
 }
 
