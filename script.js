@@ -1946,6 +1946,8 @@ function restockProduct(id) {
   if (isNaN(qty)  || qty  <= 0) { toast('Enter a valid quantity.', 'error'); return; }
   if (isNaN(cost) || cost <  0) { toast('Enter a valid cost.',     'error'); return; }
  
+  const snapshot = createDataSnapshot();
+
   product.stock += qty;  // ← THE FIX: actually increment stock
  
   restockHistory.unshift({
