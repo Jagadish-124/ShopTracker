@@ -221,8 +221,10 @@ function saveCurrentUserData(immediate = false) {
   // If offline — queue immediately without attempting Firestore
   const payload = buildDataPayload();
 
+  // Always queue locally first so data survives if the tab is closed before cloud sync finishes
+  _queuePendingSave(payload);
+
   if (!_isOnline) {
-    _queuePendingSave(payload);
     updateSaveStatus('queued');
     return Promise.resolve();
   }
@@ -2691,6 +2693,13 @@ window.addEventListener('load', () => {
   fetchExchangeRates();
   initOfflineDetection(); // ← offline banner + save queue
   initAuth(); // loading screen hidden inside completeLogin / initAuth
+
+  // SECURITY: Ensure pending changes are pushed to the cloud if the user switches apps or closes the tab
+  window.addEventListener('visibilitychange', () => {
+    if (document.visibilityState === 'hidden' && _saveDebounceTimer) {
+      saveCurrentUserData(true);
+    }
+  });
 });
 
 // ← IMPROVED: Escape closes CSV modal + confirm dialog too; Ctrl shortcuts added
