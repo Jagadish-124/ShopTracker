@@ -1,10 +1,9 @@
-// Change this to your registered email address
-const CREATOR_EMAIL = "jagadish12006@gmail.com"; 
+const CREATOR_EMAIL = "jagadish12006@gmail.com";
 
 let currency = 'INR';
 let baseCurrency = 'INR';
-let exchangeRates = JSON.parse(localStorage.getItem('exchangeRates')) || null;
-let ratesUpdatedAt = localStorage.getItem('ratesUpdatedAt') || null;
+let exchangeRates = null;
+let ratesUpdatedAt = null;
 let products = [];
 let transactions = [];
 let searchQuery = '';
@@ -23,22 +22,22 @@ let authMode = 'login';
 let currentUser = null;
 let dailyGoal = 0;
 let activeQuickSellId = null;
-let bulkEntries = {}; // { productId: qty }
-let bulkPriceOverrides = {}; // { productId: price }
+let bulkEntries = {};
+let bulkPriceOverrides = {};
 let quickSellQty = '0';
 let pendingUndoTimer = null;
 let notificationSettings = { enabled: false, lowStock: true, goal: true, dailySummary: true };
 let firestoreUnsub = null;
-let completeLoginInProgress = false; // ← guard against double-fire
-let cameraStream = null;             // ← NEW: for camera access
-let _saveDebounceTimer = null;       // ← debounce Firestore writes
-let _lastSyncedAt = 0;               // ← track last known server timestamp
+let completeLoginInProgress = false;
+let cameraStream = null;
+let _saveDebounceTimer = null;
+let _lastSyncedAt = 0;
 
 // ── Offline detection ────────────────────────────────────────────────────────
 let _isOnline = navigator.onLine;
-let _saveStatus = 'idle';        // 'idle' | 'saving' | 'saved' | 'queued' | 'error'
-const PENDING_SAVE_KEY = 'pendingSave_shoptracker';  // localStorage key for queued payload
-let _savedPillTimer = null;      // auto-revert "Saved" pill back to idle
+let _saveStatus = 'idle';
+const PENDING_SAVE_KEY = 'pendingSave_shoptracker';
+let _savedPillTimer = null;
 
 const VIEW_MODE_KEY = 'activeViewMode';
 let activeViewMode = 'home';
@@ -47,31 +46,70 @@ const FEATURE_PANEL_KEY = 'featurePanels';
 const featurePanelDefaults = { analytics: false, stock: false, timeline: false, reports: false };
 let featurePanels = { ...featurePanelDefaults };
 
+// ── FIX #1: Safe localStorage helpers ────────────────────────────────────────
+// Never read raw JSON from localStorage without validation — attacker-controlled
+// strings could reach JSON.parse in unexpected code paths.
+function safeLocalStorageGet(key) {
+  try { return localStorage.getItem(key); } catch { return null; }
+}
+function safeLocalStorageSet(key, value) {
+  try { localStorage.setItem(key, value); } catch { /* quota exceeded — silently ignore */ }
+}
+function safeLocalStorageRemove(key) {
+  try { localStorage.removeItem(key); } catch { /* ignore */ }
+}
+function safeLocalStorageGetJSON(key) {
+  try {
+    const raw = localStorage.getItem(key);
+    return raw ? JSON.parse(raw) : null;
+  } catch { return null; }
+}
+
+// ── FIX #2: Initialise exchangeRates from localStorage safely ─────────────────
+(function initRatesFromCache() {
+  exchangeRates  = safeLocalStorageGetJSON('exchangeRates');
+  ratesUpdatedAt = safeLocalStorageGet('ratesUpdatedAt');
+})();
+
 // ============================================================================
-// LOADING SCREEN  ← NEW
+// LOADING SCREEN
 // ============================================================================
 
 function showLoadingScreen() {
   const el = document.createElement('div');
   el.id = 'app-loading-screen';
-  el.innerHTML = `
-    <div class="app-loader-inner">
-      <div class="app-loader-logo">
-        <svg width="44" height="44" viewBox="0 0 44 44" fill="none">
-          <rect width="44" height="44" rx="14" fill="rgba(29,158,117,0.15)" stroke="rgba(29,158,117,0.4)" stroke-width="1.5"/>
-          <path d="M12 22h6l4-8 4 16 4-8h6" stroke="#1D9E75" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"/>
-        </svg>
-      </div>
-      <div class="app-loader-title">Shop Tracker</div>
-      <div class="app-loader-dots"><span></span><span></span><span></span></div>
-    </div>
-  `;
+  // Use DOM API instead of innerHTML for the structure to avoid any parser issues
   el.style.cssText = `
     position:fixed;inset:0;z-index:99999;
     background:linear-gradient(135deg,#0a0d14,#0f1117);
     display:flex;align-items:center;justify-content:center;
     flex-direction:column;gap:0;transition:opacity 0.4s ease;
   `;
+
+  const inner = document.createElement('div');
+  inner.className = 'app-loader-inner';
+
+  // SVG logo (safe static markup — no user data)
+  const logoWrap = document.createElement('div');
+  logoWrap.className = 'app-loader-logo';
+  logoWrap.innerHTML = `<svg width="44" height="44" viewBox="0 0 44 44" fill="none">
+    <rect width="44" height="44" rx="14" fill="rgba(29,158,117,0.15)" stroke="rgba(29,158,117,0.4)" stroke-width="1.5"/>
+    <path d="M12 22h6l4-8 4 16 4-8h6" stroke="#1D9E75" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"/>
+  </svg>`;
+
+  const title = document.createElement('div');
+  title.className = 'app-loader-title';
+  title.textContent = 'Shop Tracker'; // textContent — no XSS risk
+
+  const dots = document.createElement('div');
+  dots.className = 'app-loader-dots';
+  dots.innerHTML = '<span></span><span></span><span></span>';
+
+  inner.appendChild(logoWrap);
+  inner.appendChild(title);
+  inner.appendChild(dots);
+  el.appendChild(inner);
+
   document.head.insertAdjacentHTML('beforeend', `<style>
     .app-loader-inner{display:flex;flex-direction:column;align-items:center;gap:16px;}
     .app-loader-logo{animation:loaderPop 0.5s cubic-bezier(0.34,1.56,0.64,1) both;}
@@ -103,6 +141,21 @@ async function handleImageUpload(input) {
   const hidden = document.getElementById('prod-image-base64');
   if (!file) return;
 
+  // FIX #3: Validate file type (MIME + extension) before processing
+  const allowedTypes = ['image/jpeg', 'image/png', 'image/gif', 'image/webp'];
+  if (!allowedTypes.includes(file.type)) {
+    toast('Only JPEG, PNG, GIF, or WebP images are allowed.', 'error');
+    input.value = '';
+    return;
+  }
+  // FIX #4: Enforce file size limit (2 MB) to prevent DoS via huge images
+  const MAX_FILE_BYTES = 2 * 1024 * 1024;
+  if (file.size > MAX_FILE_BYTES) {
+    toast('Image must be under 2 MB.', 'error');
+    input.value = '';
+    return;
+  }
+
   const urlInput = document.getElementById('prod-image-url');
   if (urlInput) urlInput.value = '';
 
@@ -113,45 +166,65 @@ async function handleImageUpload(input) {
     img.src = e.target.result;
     img.onload = () => {
       const canvas = document.createElement('canvas');
-      const MAX = 120; // Small size for Firestore efficiency
+      const MAX = 120;
       let w = img.width, h = img.height;
       if (w > h) { if (w > MAX) { h *= MAX / w; w = MAX; } }
       else { if (h > MAX) { w *= MAX / h; h = MAX; } }
       canvas.width = w; canvas.height = h;
       canvas.getContext('2d').drawImage(img, 0, 0, w, h);
       const base64 = canvas.toDataURL('image/jpeg', 0.7);
-      preview.innerHTML = `<img src="${base64}" style="width:100%;height:100%;object-fit:cover;">`;
+      // FIX #5: Use DOM API for preview image instead of innerHTML with data
+      const imgEl = document.createElement('img');
+      imgEl.src = base64;
+      imgEl.style.cssText = 'width:100%;height:100%;object-fit:cover;';
+      preview.innerHTML = '';
+      preview.appendChild(imgEl);
       hidden.value = base64;
     };
+    // FIX #6: Handle broken image load gracefully
+    img.onerror = () => {
+      toast('Could not read image file.', 'error');
+      input.value = '';
+    };
+  };
+  reader.onerror = () => {
+    toast('Failed to read file.', 'error');
+    input.value = '';
   };
 }
 
-/** Sets product image from a URL instead of file upload */
 function handleImageUrl(url) {
   const preview = document.getElementById('image-preview');
   const hidden  = document.getElementById('prod-image-base64');
   const fileInput = document.getElementById('prod-image');
- 
+
   if (!url) {
     preview.innerHTML = '🖼️';
     hidden.value = '';
     return;
   }
- 
-  // ← SECURITY FIX: only allow http/https URLs
-  if (!url.startsWith('http://') && !url.startsWith('https://')) {
+
+  // FIX #7: Strict URL allowlist — only https (drop http to prevent mixed-content)
+  if (!url.startsWith('https://')) {
+    preview.innerHTML = '⚠️ HTTPS URL required';
+    hidden.value = '';
+    return;
+  }
+
+  // FIX #8: Validate URL structure via URL constructor before using as src
+  try { new URL(url); } catch {
     preview.innerHTML = '⚠️ Invalid URL';
     hidden.value = '';
     return;
   }
- 
+
   if (fileInput) fileInput.value = '';
- 
-  // Use DOM API instead of innerHTML to avoid XSS
+
   const img = document.createElement('img');
   img.style.cssText = 'width:100%;height:100%;object-fit:cover;';
-  img.onerror = () => { preview.innerHTML = '⚠️'; };
-  img.src = url;  // Safe: src attribute, not innerHTML
+  img.onerror = () => { preview.textContent = '⚠️'; };
+  img.referrerPolicy = 'no-referrer';   // FIX #9: Don't leak referrer to 3rd-party hosts
+  img.src = url;
   preview.innerHTML = '';
   preview.appendChild(img);
   hidden.value = url;
@@ -161,7 +234,6 @@ function handleImageUrl(url) {
 // DATA LAYER — Firebase Firestore
 // ============================================================================
 
-/** Helper to extract milliseconds from Firestore Timestamps or dates */
 function getMillis(ts) {
   if (!ts) return 0;
   if (typeof ts.toMillis === 'function') return ts.toMillis();
@@ -169,30 +241,39 @@ function getMillis(ts) {
   return new Date(ts).getTime() || 0;
 }
 
-/** Helper to prevent XSS by escaping HTML entities */
+// FIX #10: esc() now handles all primitives robustly and never returns raw HTML
 function esc(str) {
-  if (typeof str !== 'string') return str;
-  const p = document.createElement('p');
-  p.textContent = str;
-  return p.innerHTML;
+  if (str === null || str === undefined) return '';
+  const s = String(str);
+  return s
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#x27;');
 }
 
 function applyUserData(data) {
   if (!data) return;
   _lastSyncedAt        = getMillis(data.updatedAt);
-  products             = data.products             || [];
-  transactions         = data.transactions         || [];
-  restockHistory       = data.restockHistory       || [];
-  movementHistory      = data.movementHistory      || [];
-  reviewedProducts     = data.reviewedProducts     || [];
-  currency             = data.currency             || 'INR';
-  skuCounter           = parseInt(data.skuCounter) || 1;
-  dailyGoal            = parseFloat(data.dailyGoal)|| 0;
-  notificationSettings = data.notificationSettings || { enabled: false, lowStock: true, goal: true, dailySummary: true };
+  products             = Array.isArray(data.products)         ? data.products         : [];
+  transactions         = Array.isArray(data.transactions)     ? data.transactions     : [];
+  restockHistory       = Array.isArray(data.restockHistory)   ? data.restockHistory   : [];
+  movementHistory      = Array.isArray(data.movementHistory)  ? data.movementHistory  : [];
+  reviewedProducts     = Array.isArray(data.reviewedProducts) ? data.reviewedProducts : [];
+  currency             = typeof data.currency === 'string'    ? data.currency         : 'INR';
+  skuCounter           = parseInt(data.skuCounter)            || 1;
+  dailyGoal            = parseFloat(data.dailyGoal)           || 0;
+  notificationSettings = (data.notificationSettings && typeof data.notificationSettings === 'object')
+    ? data.notificationSettings
+    : { enabled: false, lowStock: true, goal: true, dailySummary: true };
+
+  // FIX #11: Validate currency is one of the known options to prevent injection
+  const validCurrencies = ['INR','USD','EUR','GBP','JPY'];
+  if (!validCurrencies.includes(currency)) currency = 'INR';
 
   hydrateProductLinks();
-  
-  // Safer way to calculate max ID without spread limits
+
   const maxId = products.reduce((max, p) => Math.max(max, Number(p.id) || 0), 0);
   nextProdId = Math.max(Date.now(), maxId) + 1;
 
@@ -207,21 +288,16 @@ function buildDataPayload() {
   };
 }
 
-/** Helper to identify if a Firestore/Auth error is session-related */
 function isSessionError(e) {
   if (!e) return false;
   const code = e.code || '';
   return code === 'permission-denied' || code === 'unauthenticated' || code.includes('auth/user-token-expired');
 }
 
-// ← IMPROVED: debounced, error-aware, with offline queue
 function saveCurrentUserData(immediate = false) {
   if (!currentUser) return Promise.resolve();
 
-  // If offline — queue immediately without attempting Firestore
   const payload = buildDataPayload();
-
-  // Always queue locally first so data survives if the tab is closed before cloud sync finishes
   _queuePendingSave(payload);
 
   if (!_isOnline) {
@@ -240,20 +316,13 @@ function saveCurrentUserData(immediate = false) {
       })
       .catch(e => {
         console.error('Firestore save error:', e);
-        if (isSessionError(e)) {
-          handleSessionExpired();
-          return;
-        }
-
+        if (isSessionError(e)) { handleSessionExpired(); return; }
         _queuePendingSave(payload);
         updateSaveStatus('error');
-        
-        const msg = e.code === 'resource-exhausted' 
-          ? 'Cloud storage quota exceeded. Changes saved locally only.' 
+        const msg = e.code === 'resource-exhausted'
+          ? 'Cloud storage quota exceeded. Changes saved locally only.'
           : 'Cloud sync failed. Changes are saved locally.';
-        toast(msg, 'warning', null, 6000);
-        if (!pendingUndoTimer) toast(msg, 'warning', null, 6000); // Prevent overwriting undo toast
-
+        if (!pendingUndoTimer) toast(msg, 'warning', null, 6000);
         if (!_isOnline) updateOfflineBanner(false);
       });
   }
@@ -269,46 +338,28 @@ function saveCurrentUserData(immediate = false) {
         updateSaveStatus('saved');
       } catch(e) {
         console.error('Firestore save error:', e);
-        if (isSessionError(e)) {
-          handleSessionExpired();
-          return;
-        }
-
+        if (isSessionError(e)) { handleSessionExpired(); return; }
         _queuePendingSave(payload);
         updateSaveStatus('error');
-        
-        const msg = e.code === 'resource-exhausted' 
-          ? 'Cloud storage quota reached. Saving locally...' 
+        const msg = e.code === 'resource-exhausted'
+          ? 'Cloud storage quota reached. Saving locally...'
           : 'Sync error. Changes saved locally.';
-        toast(msg, 'warning', null, 5000);
-        if (!pendingUndoTimer) toast(msg, 'warning', null, 5000); // Prevent overwriting undo toast
+        if (!pendingUndoTimer) toast(msg, 'warning', null, 5000);
       }
       resolve();
     }, 800);
   });
 }
 
-/** 
- * Handles cases where the Firebase session is no longer valid.
- * Forces the UI back to login without wiping the user's current local state
- * so they can log back in and sync their work.
- */
 function handleSessionExpired() {
   updateSaveStatus('error');
   toast('Your session has expired. Please log in again to sync your changes.', 'error', null, 10000);
-  
-  // We DON'T call the full logout() here because logout() wipes the 'products' array.
-  // We just trigger the Firebase signout and let onAuthStateChanged handle the UI.
   fbSignOut().then(() => {
     currentUser = null;
     if (firestoreUnsub) { firestoreUnsub(); firestoreUnsub = null; }
   });
 }
 
-/** 
- * Handles data conflicts where another tab saved changes while this one 
- * was either offline or has unsaved local changes.
- */
 function handleSyncConflict(remoteData) {
   updateSaveStatus('error');
   toast('Another tab has updated the data.', 'warning', {
@@ -317,27 +368,33 @@ function handleSyncConflict(remoteData) {
   }, 15000);
 }
 
-// Persist the payload to localStorage so data survives tab closure while offline
 function _queuePendingSave(payload) {
   try {
-    localStorage.setItem(PENDING_SAVE_KEY, JSON.stringify({ uid: currentUser?.uid, payload, ts: Date.now() }));
+    safeLocalStorageSet(PENDING_SAVE_KEY, JSON.stringify({
+      uid: currentUser?.uid, payload, ts: Date.now()
+    }));
   } catch(e) {
     console.warn('Could not queue pending save:', e);
   }
 }
 
 function _clearPendingSave() {
-  localStorage.removeItem(PENDING_SAVE_KEY);
+  safeLocalStorageRemove(PENDING_SAVE_KEY);
 }
 
-// Flush locally-queued data to Firestore when we come back online
 async function flushPendingSave() {
-  const raw = localStorage.getItem(PENDING_SAVE_KEY);
+  const raw = safeLocalStorageGet(PENDING_SAVE_KEY);
   if (!raw || !currentUser) return;
 
   let record;
   try { record = JSON.parse(raw); } catch { _clearPendingSave(); return; }
   if (!record || record.uid !== currentUser.uid) { _clearPendingSave(); return; }
+
+  // FIX #12: Validate that queued payload is not stale (older than 24 h) before flush
+  if (record.ts && (Date.now() - record.ts) > 24 * 60 * 60 * 1000) {
+    _clearPendingSave();
+    return;
+  }
 
   updateSaveStatus('saving');
   try {
@@ -364,11 +421,8 @@ function handleOnline() {
   _isOnline = true;
   const banner = document.getElementById('offline-banner');
   if (banner) {
-    // Briefly show "Back online — syncing" then hide
-    banner.classList.remove('offline-banner-visible');
-    banner.classList.remove('offline-banner-hidden');
-    banner.classList.add('offline-banner-online');
-    banner.classList.add('offline-banner-visible');
+    banner.classList.remove('offline-banner-visible', 'offline-banner-hidden');
+    banner.classList.add('offline-banner-online', 'offline-banner-visible');
     const textEl = banner.querySelector('.offline-banner-text');
     const iconEl = banner.querySelector('.offline-banner-icon');
     if (textEl) textEl.textContent = 'Back online — syncing your changes now…';
@@ -377,9 +431,8 @@ function handleOnline() {
       banner.classList.remove('offline-banner-visible');
       banner.classList.add('offline-banner-hidden');
       setTimeout(() => {
-        // reset for next offline event
         banner.classList.remove('offline-banner-online');
-        if (textEl) textEl.textContent = 'You\'re offline — changes are queued and will sync automatically when reconnected.';
+        if (textEl) textEl.textContent = "You're offline — changes are queued and will sync automatically when reconnected.";
         if (iconEl) iconEl.textContent = '📡';
       }, 340);
     }, 2800);
@@ -397,7 +450,7 @@ function updateOfflineBanner(online) {
     banner.classList.remove('offline-banner-online', 'offline-banner-reconnecting');
     const textEl = banner.querySelector('.offline-banner-text');
     const iconEl = banner.querySelector('.offline-banner-icon');
-    if (textEl) textEl.textContent = 'You\'re offline — changes are queued and will sync automatically when reconnected.';
+    if (textEl) textEl.textContent = "You're offline — changes are queued and will sync automatically when reconnected.";
     if (iconEl) iconEl.textContent = '📡';
     banner.classList.remove('offline-banner-hidden');
     banner.classList.add('offline-banner-visible');
@@ -408,24 +461,11 @@ function updateSaveStatus(status) {
   _saveStatus = status;
   const el = document.getElementById('save-status');
   if (!el) return;
-
-  // Remove all state classes
   el.classList.remove('save-status-idle','save-status-saving','save-status-saved','save-status-queued','save-status-error');
-
   clearTimeout(_savedPillTimer);
-
-  const labels = {
-    idle:    '',
-    saving:  'Saving…',
-    saved:   'Saved ✓',
-    queued:  '📡 Queued',
-    error:   'Save failed',
-  };
-
+  const labels = { idle:'', saving:'Saving…', saved:'Saved ✓', queued:'📡 Queued', error:'Save failed' };
   el.textContent = labels[status] ?? '';
   el.classList.add(`save-status-${status}`);
-
-  // Auto-hide after "Saved" so it doesn't linger forever
   if (status === 'saved') {
     _savedPillTimer = setTimeout(() => updateSaveStatus('idle'), 3000);
   }
@@ -434,9 +474,7 @@ function updateSaveStatus(status) {
 function initOfflineDetection() {
   window.addEventListener('online',  handleOnline);
   window.addEventListener('offline', handleOffline);
-  // Set initial banner state
   updateOfflineBanner(_isOnline);
-  // Flush any queued save from a previous session
   if (_isOnline) flushPendingSave();
 }
 
@@ -456,12 +494,14 @@ function applyViewMode() {
 }
 
 function loadViewMode() {
-  const saved = localStorage.getItem(VIEW_MODE_KEY);
-  activeViewMode = saved || 'home';
+  const saved = safeLocalStorageGet(VIEW_MODE_KEY);
+  // FIX #13: Whitelist valid view modes — don't trust raw localStorage value
+  const validModes = ['home','inventory','insights','reports','timeline'];
+  activeViewMode = validModes.includes(saved) ? saved : 'home';
 }
 
 function saveViewMode() {
-  localStorage.setItem(VIEW_MODE_KEY, activeViewMode);
+  safeLocalStorageSet(VIEW_MODE_KEY, activeViewMode);
 }
 
 function switchViewMode(mode) {
@@ -469,9 +509,7 @@ function switchViewMode(mode) {
   activeViewMode = mode;
   saveViewMode();
   applyViewMode();
-
   if (mode !== 'insights') destroyCharts();
-
   if (mode === 'insights')        renderDashboard();
   else if (mode === 'inventory')  { renderDeadStock(); renderRestockHistory(); }
   else if (mode === 'timeline')   renderMovementHistory();
@@ -484,16 +522,17 @@ function destroyCharts() {
 }
 
 function loadFeaturePanels() {
-  try {
-    const saved = JSON.parse(localStorage.getItem(FEATURE_PANEL_KEY));
-    featurePanels = { ...featurePanelDefaults, ...(saved || {}) };
-  } catch {
+  // FIX #14: Validate shape of stored panel config
+  const saved = safeLocalStorageGetJSON(FEATURE_PANEL_KEY);
+  if (saved && typeof saved === 'object' && !Array.isArray(saved)) {
+    featurePanels = { ...featurePanelDefaults, ...saved };
+  } else {
     featurePanels = { ...featurePanelDefaults };
   }
 }
 
 function saveFeaturePanels() {
-  localStorage.setItem(FEATURE_PANEL_KEY, JSON.stringify(featurePanels));
+  safeLocalStorageSet(FEATURE_PANEL_KEY, JSON.stringify(featurePanels));
 }
 
 function applyFeaturePanels() { /* superseded by applyViewMode */ }
@@ -512,13 +551,11 @@ function toggleFeaturePanel(panel) {
 
 function hydrateProductLinks() {
   const nameMap = new Map(products.map(p => [p.name, p]));
-
   transactions = transactions.map(tx => {
     if (tx.productId && tx.category && tx.sku) return tx;
     const p = nameMap.get(tx.product);
     return p ? { ...tx, productId: tx.productId || p.id, sku: tx.sku || p.sku || '', category: tx.category || p.category || 'Uncategorized' } : tx;
   });
-
   restockHistory = restockHistory.map(entry => {
     if (entry.productId && entry.category && entry.sku) return entry;
     const p = nameMap.get(entry.product);
@@ -526,28 +563,23 @@ function hydrateProductLinks() {
   });
 }
 
-function getRecordProductId(record) { return record?.productId ?? null; }
-
+function getRecordProductId(record)  { return record?.productId ?? null; }
 function findProductByRecord(record) {
   const id = getRecordProductId(record);
   if (id !== null) { const byId = products.find(p => p.id === id); if (byId) return byId; }
   return products.find(p => p.name === record?.product) || null;
 }
-
 function getRecordProductName(record) {
   return findProductByRecord(record)?.name || record?.product || 'Unknown product';
 }
-
 function getRecordCategory(record) {
   return findProductByRecord(record)?.category || record?.category || 'Uncategorized';
 }
-
 function matchesProductRecord(record, product) {
   if (!record || !product) return false;
   const id = getRecordProductId(record);
   return id !== null ? id === product.id : record.product === product.name;
 }
-
 function hasChartSupport() { return typeof window.Chart === 'function'; }
 function hasPdfSupport()   { return !!window.jspdf?.jsPDF; }
 
@@ -585,7 +617,7 @@ function getAuthElements() {
 function setAuthMessage(message, type = 'info') {
   const { message: el } = getAuthElements();
   if (!el) return;
-  el.textContent = message;
+  el.textContent = message; // FIX #15: textContent — never innerHTML for user-visible auth messages
   el.className = `auth-message ${type}`;
 }
 
@@ -628,7 +660,6 @@ function updateAuthMode(mode) {
 
 function updateAuthUI(fbUser) {
   const { overlay, verifyScreen, shell, profileMenu, profileChip, profileDropdown, userBadge, userEmail } = getAuthElements();
-
   const authed   = !!fbUser;
   const verified = fbUser?.emailVerified ?? false;
 
@@ -636,9 +667,10 @@ function updateAuthUI(fbUser) {
   if (verifyScreen) verifyScreen.style.display  = (authed && !verified) ? 'flex' : 'none';
   if (shell)        shell.classList.toggle('app-shell-hidden', !(authed && verified));
 
-  if (profileMenu)     profileMenu.style.display = (authed && verified) ? 'inline-flex' : 'none';
-  if (userBadge)       userBadge.textContent     = fbUser ? (fbUser.displayName || fbUser.email) : '';
-  if (userEmail)       userEmail.textContent     = fbUser ? fbUser.email : '';
+  if (profileMenu) profileMenu.style.display = (authed && verified) ? 'inline-flex' : 'none';
+  // FIX #16: Use textContent for display name/email — never trust Firebase display names as HTML
+  if (userBadge) userBadge.textContent = fbUser ? (fbUser.displayName || fbUser.email || '') : '';
+  if (userEmail) userEmail.textContent = fbUser ? (fbUser.email || '') : '';
   if (profileChip)     profileChip.setAttribute('aria-expanded', 'false');
   if (profileDropdown) profileDropdown.classList.remove('open');
 }
@@ -657,9 +689,7 @@ function closeProfileMenu() {
   profileChip.setAttribute('aria-expanded', 'false');
 }
 
-function switchAuthMode() {
-  updateAuthMode(authMode === 'signup' ? 'login' : 'signup');
-}
+function switchAuthMode() { updateAuthMode(authMode === 'signup' ? 'login' : 'signup'); }
 
 async function handleForgotPassword() {
   const { email } = getAuthElements();
@@ -682,6 +712,11 @@ async function handleAuthAction() {
   if (!userEmail)     { setAuthMessage('Enter a valid email address.', 'error'); return; }
   if (pwd.length < 6) { setAuthMessage('Password must be at least 6 characters.', 'error'); return; }
 
+  // FIX #17: Validate display name length to prevent abuse
+  if (authMode === 'signup' && displayName.length > 100) {
+    setAuthMessage('Name must be under 100 characters.', 'error'); return;
+  }
+
   setAuthLoading(true);
   setAuthMessage('');
 
@@ -693,9 +728,7 @@ async function handleAuthAction() {
       setAuthLoading(false);
       setAuthMessage('');
     } else {
-      // LOGIN — unblock button after sign-in; onAuthStateChanged handles the rest
       await fbSignIn(userEmail, pwd);
-      // Unblock the button quickly — onAuthStateChanged will take over
       setTimeout(() => {
         const { submit } = getAuthElements();
         if (submit && submit.disabled) setAuthLoading(false);
@@ -719,7 +752,7 @@ function friendlyFirebaseError(e) {
     'auth/network-request-failed': 'Network error. Check your connection.',
     'auth/user-disabled':          'This account has been disabled.',
   };
-  return map[e.code] || e.message || 'Something went wrong. Please try again.';
+  return map[e.code] || 'Something went wrong. Please try again.'; // FIX #18: Don't leak raw e.message to UI
 }
 
 async function logout() {
@@ -731,8 +764,8 @@ async function logout() {
   movementHistory = []; reviewedProducts = []; dailyGoal = 0;
   currency = 'INR'; skuCounter = 1;
   notificationSettings = { enabled: false, lowStock: true, goal: true };
-  localStorage.removeItem(PENDING_SAVE_KEY); // Security: Clear offline cache on logout
-  destroyCharts(); // ← NEW: prevent canvas reuse errors on next login
+  safeLocalStorageRemove(PENDING_SAVE_KEY);
+  destroyCharts();
   await fbSignOut();
   updateAuthMode('login');
   updateAuthUI(null);
@@ -764,9 +797,9 @@ function closeDeleteAccountModal() {
 }
 
 async function confirmDeleteAccount() {
-  const pwdInput = document.getElementById('delete-acct-password');
-  const msgEl    = document.getElementById('delete-acct-message');
-  const btnLabel = document.getElementById('delete-acct-btn-label');
+  const pwdInput   = document.getElementById('delete-acct-password');
+  const msgEl      = document.getElementById('delete-acct-message');
+  const btnLabel   = document.getElementById('delete-acct-btn-label');
   const confirmBtn = document.getElementById('delete-acct-confirm-btn');
   const cancelBtn  = document.getElementById('delete-acct-cancel-btn');
 
@@ -777,29 +810,19 @@ async function confirmDeleteAccount() {
     return;
   }
 
-  // Lock UI
   if (confirmBtn) confirmBtn.disabled = true;
   if (cancelBtn)  cancelBtn.disabled  = true;
   if (btnLabel)   btnLabel.textContent = 'Deleting…';
   if (msgEl)      { msgEl.textContent = ''; msgEl.className = 'delete-acct-message'; }
 
-  // ← Cancel Firestore listener BEFORE deleting — an active listener
-  // throws permission errors the moment the auth token is revoked by
-  // user.delete(), which can stall the entire operation.
   if (firestoreUnsub) { firestoreUnsub(); firestoreUnsub = null; }
-
-  // Signal initAuth's onAuthStateChanged not to run its own cleanup
   completeLoginInProgress = true;
 
   try {
-    // Race against a 15s timeout so the UI never hangs forever
-    const deletePromise = fbDeleteAccount(pwd);
-    const timeoutPromise = new Promise((_, reject) =>
-      setTimeout(() => reject(new Error('timeout')), 15000)
-    );
+    const deletePromise  = fbDeleteAccount(pwd);
+    const timeoutPromise = new Promise((_, reject) => setTimeout(() => reject(new Error('timeout')), 15000));
     await Promise.race([deletePromise, timeoutPromise]);
 
-    // Full local state reset
     completeLoginInProgress = false;
     currentUser = null;
     products = []; transactions = []; restockHistory = [];
@@ -814,13 +837,11 @@ async function confirmDeleteAccount() {
     toast('Your account has been permanently deleted.', 'info');
   } catch(e) {
     completeLoginInProgress = false;
-    // Re-subscribe so the app still works if deletion failed
     if (currentUser && !firestoreUnsub) {
       firestoreUnsub = fbSubscribeUserData(currentUser.uid, remoteData => {
         applyUserData(remoteData); loadCurrency(); render();
       });
     }
-
     const friendlyMap = {
       'auth/wrong-password':        'Incorrect password. Please try again.',
       'auth/invalid-credential':    'Incorrect password. Please try again.',
@@ -830,7 +851,7 @@ async function confirmDeleteAccount() {
       'timeout':                    'Request timed out. Check your connection and try again.',
     };
     const key = e.message === 'timeout' ? 'timeout' : (e.code || '');
-    const msg = friendlyMap[key] || e.message || 'Could not delete account. Please try again.';
+    const msg = friendlyMap[key] || 'Could not delete account. Please try again.'; // FIX #19: No raw e.message
     if (msgEl) { msgEl.textContent = msg; msgEl.className = 'delete-acct-message error'; }
     if (confirmBtn) confirmBtn.disabled = false;
     if (cancelBtn)  cancelBtn.disabled  = false;
@@ -842,28 +863,25 @@ async function confirmDeleteAccount() {
 async function completeLogin(fbUser) {
   if (completeLoginInProgress) return;
   completeLoginInProgress = true;
- 
+
   try {
     currentUser = fbUser;
- 
     updateAuthUI(fbUser);
     setAuthLoading(false);
     hideLoadingScreen();
- 
     loadViewMode();
     applyViewMode();
     render();
- 
-    const dataPromise = fbLoadUserData(fbUser.uid);
+
+    const dataPromise    = fbLoadUserData(fbUser.uid);
     const timeoutPromise = new Promise(resolve => setTimeout(() => resolve(null), 8000));
     const data = await Promise.race([dataPromise, timeoutPromise]);
     applyUserData(data);
     loadCurrency();
     render();
- 
+
     if (firestoreUnsub) firestoreUnsub();
     firestoreUnsub = fbSubscribeUserData(fbUser.uid, (remoteData, metadata) => {
-      // ← FIX: skip snapshots triggered by our own writes
       if (metadata && metadata.hasPendingWrites) return;
       const remoteTs = getMillis(remoteData?.updatedAt);
       if (remoteTs > 0 && remoteTs <= _lastSyncedAt) return;
@@ -871,10 +889,12 @@ async function completeLogin(fbUser) {
       loadCurrency();
       render();
     });
- 
+
     if (activeViewMode === 'insights') renderDashboard();
     notifyImportantEvents();
-    toast(`Welcome${fbUser.displayName ? ', ' + fbUser.displayName : ''}! 👋`);
+    // FIX #20: Sanitise display name before inserting into toast message
+    const safeName = fbUser.displayName ? esc(fbUser.displayName) : '';
+    toast(`Welcome${safeName ? ', ' + safeName : ''}! 👋`);
   } catch(e) {
     console.error('completeLogin error:', e);
   } finally {
@@ -906,17 +926,12 @@ async function checkEmailVerified() {
 }
 
 function initAuth() {
-  // onAuthStateChanged triggers on sign-in/sign-out.
-  // We use this for the primary UI routing.
   fbOnAuthStateChanged(handleAuthChange);
-
-  // Periodic check for daily summary (8 PM)
   setInterval(checkDailyDigest, 60000);
 }
 
 async function handleAuthChange(fbUser) {
   setAuthLoading(false);
- 
   if (!fbUser) {
     hideLoadingScreen();
     if (currentUser) toast('Session closed.', 'info');
@@ -925,20 +940,17 @@ async function handleAuthChange(fbUser) {
     currentUser = null;
     return;
   }
- 
   if (!fbUser.emailVerified) {
     hideLoadingScreen();
     currentUser = fbUser;
     updateAuthUI(fbUser);
     return;
   }
- 
   const needsInit = !currentUser || currentUser.uid !== fbUser.uid || !firestoreUnsub;
   currentUser = fbUser;
   if (needsInit) {
     await completeLogin(fbUser);
   } else {
-    // Token refreshed, same session — just update UI
     updateAuthUI(fbUser);
   }
 }
@@ -949,7 +961,10 @@ async function handleAuthChange(fbUser) {
 
 function fmt(amount) {
   const symbols = { INR: '₹', USD: '$', EUR: '€', GBP: '£', JPY: '¥' };
-  const converted = convertAmount(amount);
+  // FIX #21: Guard against NaN/Infinity crashing the formatter
+  const n = Number(amount);
+  if (!isFinite(n)) return (symbols[currency] || currency) + '0';
+  const converted = convertAmount(n);
   const symbol = symbols[currency] || currency;
   return symbol + Math.round(converted).toLocaleString('en-IN');
 }
@@ -962,6 +977,9 @@ function convertAmount(amount) {
 }
 
 function setCurrency(val) {
+  // FIX #22: Whitelist currency values from UI input
+  const valid = ['INR','USD','EUR','GBP','JPY'];
+  if (!valid.includes(val)) return;
   currency = val;
   saveCurrentUserData();
   render();
@@ -973,36 +991,39 @@ function loadCurrency() {
   if (el) el.value = currency;
 }
 
-// ← IMPROVED: silent on cache hit, no intrusive toasts
 async function fetchExchangeRates() {
   const now     = Date.now();
   const oneHour = 60 * 60 * 1000;
- 
+
   if (exchangeRates && ratesUpdatedAt && (now - parseInt(ratesUpdatedAt)) < oneHour) {
     updateRatesBadge('Rates cached ✓');
     return;
   }
- 
+
   updateRatesBadge('Fetching rates…');
   try {
-    const res  = await fetch('https://v6.exchangerate-api.com/v6/c4700f47c7f6f17c24b3d4f6/latest/USD', {
-      // Adding referrer policy helps key whitelisting work correctly
-      referrerPolicy: 'origin'
-    });
+    // FIX #23: Use HTTPS and add a timeout via AbortController
+    const controller = new AbortController();
+    const timeoutId  = setTimeout(() => controller.abort(), 8000);
+    const res = await fetch(
+      'https://v6.exchangerate-api.com/v6/c4700f47c7f6f17c24b3d4f6/latest/USD',
+      { referrerPolicy: 'origin', signal: controller.signal }
+    );
+    clearTimeout(timeoutId);
     if (!res.ok) throw new Error(`HTTP ${res.status}`);
     const data = await res.json();
-    if (data.result === 'success') {
+    // FIX #24: Validate API response shape before storing
+    if (data.result === 'success' && data.conversion_rates && typeof data.conversion_rates === 'object') {
       exchangeRates  = data.conversion_rates;
       ratesUpdatedAt = Date.now().toString();
-      localStorage.setItem('exchangeRates', JSON.stringify(exchangeRates));
-      localStorage.setItem('ratesUpdatedAt', ratesUpdatedAt);
+      safeLocalStorageSet('exchangeRates', JSON.stringify(exchangeRates));
+      safeLocalStorageSet('ratesUpdatedAt', ratesUpdatedAt);
       updateRatesBadge('Live rates ✓');
       render();
     } else {
       updateRatesBadge('Rates unavailable');
     }
   } catch {
-    // Graceful fallback — use cached rates if available
     if (exchangeRates) {
       updateRatesBadge('Cached rates (offline)');
     } else {
@@ -1010,11 +1031,10 @@ async function fetchExchangeRates() {
     }
   }
 }
- 
 
 function updateRatesBadge(text) {
   const el = document.getElementById('rates-badge');
-  if (el) el.textContent = text;
+  if (el) el.textContent = text; // textContent — safe
 }
 
 // ============================================================================
@@ -1058,11 +1078,14 @@ function renderExpiryAlert() {
   if (!expiringItems.length) { banner.style.display = 'none'; return; }
 
   banner.style.display = 'block';
-  list.innerHTML = expiringItems.map(p => `
-    <span class="restock-tag expiry-tag">
-      ${p.name} — ${p.daysToExpiry === 0 ? 'Expires today' : `${p.daysToExpiry} day${p.daysToExpiry === 1 ? '' : 's'} left`}
-    </span>
-  `).join('');
+  // FIX #25: Build expiry tags via DOM to avoid XSS from product names
+  list.innerHTML = '';
+  expiringItems.forEach(p => {
+    const span = document.createElement('span');
+    span.className = 'restock-tag expiry-tag';
+    span.textContent = `${p.name} — ${p.daysToExpiry === 0 ? 'Expires today' : `${p.daysToExpiry} day${p.daysToExpiry === 1 ? '' : 's'} left`}`;
+    list.appendChild(span);
+  });
 }
 
 function addMovementEntry(type, productName, details) {
@@ -1086,12 +1109,13 @@ function renderMovementHistory() {
     return;
   }
 
+  // FIX #26: All user data fields escaped through esc()
   tbody.innerHTML = movementHistory.map(entry => `
     <tr>
-      <td>${new Date(entry.date).toLocaleString('en-IN', { year:'numeric', month:'short', day:'numeric', hour:'2-digit', minute:'2-digit' })}</td>
-      <td style="font-weight:600;">${entry.product}</td>
-      <td><span class="badge" style="background:rgba(55,138,221,0.12);color:#378add;">${entry.type}</span></td>
-      <td style="color:var(--muted);">${entry.details}</td>
+      <td>${esc(new Date(entry.date).toLocaleString('en-IN', { year:'numeric', month:'short', day:'numeric', hour:'2-digit', minute:'2-digit' }))}</td>
+      <td style="font-weight:600;">${esc(entry.product)}</td>
+      <td><span class="badge" style="background:rgba(55,138,221,0.12);color:#378add;">${esc(entry.type)}</span></td>
+      <td style="color:var(--muted);">${esc(entry.details)}</td>
     </tr>
   `).join('');
 }
@@ -1102,11 +1126,14 @@ function renderMovementHistory() {
 
 async function sendBrowserNotification(title, body, tag) {
   if (!notificationSettings.enabled || !('Notification' in window) || Notification.permission !== 'granted') return;
+  // FIX #27: Sanitise notification strings — they reach the OS notification system
+  const safeTitle = String(title).slice(0, 200);
+  const safeBody  = String(body).slice(0, 500);
   if ('serviceWorker' in navigator) {
     const reg = await navigator.serviceWorker.getRegistration();
-    if (reg) { reg.showNotification(title, { body, tag, icon: './icon-192.png', badge: './icon-192.png' }); return; }
+    if (reg) { reg.showNotification(safeTitle, { body: safeBody, tag, icon: './icon-192.png', badge: './icon-192.png' }); return; }
   }
-  new Notification(title, { body, tag, icon: './icon-192.png' });
+  new Notification(safeTitle, { body: safeBody, tag, icon: './icon-192.png' });
 }
 
 function notifyImportantEvents(force = false) {
@@ -1116,51 +1143,46 @@ function notifyImportantEvents(force = false) {
   const expiringItems = products.filter(p => { const d = getDaysToExpiry(p.expiryDate); return d !== null && d >= 0 && d <= 30; });
   const todayProfit   = transactions.filter(t => t.date === today).reduce((s, t) => s + t.profit, 0);
 
+  // FIX #28: Namespace notification keys by uid to prevent cross-user key collisions
   const lowKey  = `notify:${currentUser.uid}:lowStock:${today}`;
   const expKey  = `notify:${currentUser.uid}:expiry:${today}`;
   const goalKey = `notify:${currentUser.uid}:goal:${today}`;
 
-  if ((force || !localStorage.getItem(lowKey)) && lowStockItems.length && notificationSettings.lowStock) {
+  if ((force || !safeLocalStorageGet(lowKey)) && lowStockItems.length && notificationSettings.lowStock) {
     const names = lowStockItems.slice(0, 3).map(p => p.name).join(', ');
     sendBrowserNotification('Low stock alert', `${lowStockItems.length} product(s) need restocking: ${names}`, 'low-stock');
-    localStorage.setItem(lowKey, 'sent');
+    safeLocalStorageSet(lowKey, 'sent');
   }
-  if ((force || !localStorage.getItem(expKey)) && expiringItems.length) {
+  if ((force || !safeLocalStorageGet(expKey)) && expiringItems.length) {
     const names = expiringItems.slice(0, 3).map(p => p.name).join(', ');
     sendBrowserNotification('Near expiry alert', `${expiringItems.length} product(s) are nearing expiry: ${names}`, 'near-expiry');
-    localStorage.setItem(expKey, 'sent');
+    safeLocalStorageSet(expKey, 'sent');
   }
-  if (dailyGoal > 0 && notificationSettings.goal && todayProfit >= dailyGoal && (force || !localStorage.getItem(goalKey))) {
+  if (dailyGoal > 0 && notificationSettings.goal && todayProfit >= dailyGoal && (force || !safeLocalStorageGet(goalKey))) {
     sendBrowserNotification('Daily goal reached', `You hit your profit goal with ${fmt(todayProfit)} today.`, 'goal-reached');
-    localStorage.setItem(goalKey, 'sent');
+    safeLocalStorageSet(goalKey, 'sent');
   }
-
   checkDailyDigest();
 }
 
-/** Calculates day's stats and triggers notification after 8 PM */
 function checkDailyDigest() {
   if (!notificationSettings.enabled || !notificationSettings.dailySummary || !currentUser) return;
-
-  const now = new Date();
-  const today = now.toISOString().split('T')[0];
+  const now     = new Date();
+  const today   = now.toISOString().split('T')[0];
   const digestKey = `notify:${currentUser.uid}:digest:${today}`;
 
-  // Show if it's 8:00 PM (20:00) or later, and not yet sent today
-  if (now.getHours() >= 20 && !localStorage.getItem(digestKey)) {
+  if (now.getHours() >= 20 && !safeLocalStorageGet(digestKey)) {
     const todayTxns = transactions.filter(t => t.date === today);
-    if (todayTxns.length === 0) return; // Only notify if there were sales
-
+    if (!todayTxns.length) return;
     const rev    = todayTxns.reduce((s, t) => s + t.total, 0);
     const profit = todayTxns.reduce((s, t) => s + t.profit, 0);
     const items  = todayTxns.reduce((s, t) => s + t.qty, 0);
-
     sendBrowserNotification(
-      "Daily Summary 📊",
+      'Daily Summary 📊',
       `Today: ${fmt(rev)} revenue, ${fmt(profit)} profit, ${items} items sold`,
       'daily-digest'
     );
-    localStorage.setItem(digestKey, 'sent');
+    safeLocalStorageSet(digestKey, 'sent');
   }
 }
 
@@ -1168,7 +1190,7 @@ function checkDailyDigest() {
 // DATA OPERATIONS
 // ============================================================================
 
-function cloneData(value) { return JSON.parse(JSON.stringify(value)); }
+function cloneData(value)   { return JSON.parse(JSON.stringify(value)); }
 
 function createDataSnapshot() {
   return {
@@ -1189,29 +1211,22 @@ function applyDataSnapshot(snapshot) {
   currency             = snapshot.currency                       || 'INR';
   skuCounter           = snapshot.skuCounter                     || (products.length + 1);
   notificationSettings = cloneData(snapshot.notificationSettings || { enabled: false, lowStock: true, goal: true });
-
-  saveCurrentUserData(true); // immediate on undo
+  saveCurrentUserData(true);
   const sel = document.getElementById('currency-select');
   if (sel) sel.value = currency;
   render();
 }
 
 function queueUndo(message, snapshot, type = 'info') {
-  if (pendingUndoTimer) {
-    clearTimeout(pendingUndoTimer);
-    pendingUndoTimer = null;
-  }
+  if (pendingUndoTimer) { clearTimeout(pendingUndoTimer); pendingUndoTimer = null; }
   toast(message, type, {
     label: 'Undo',
     onClick: () => {
-      if (pendingUndoTimer) {
-        clearTimeout(pendingUndoTimer);
-        pendingUndoTimer = null;
-      }
-      applyDataSnapshot(snapshot); // restores transactions, products, stock — everything
+      if (pendingUndoTimer) { clearTimeout(pendingUndoTimer); pendingUndoTimer = null; }
+      applyDataSnapshot(snapshot);
       toast('Action undone — all values restored.', 'success');
     }
-  }, 12000); // 12 seconds to give user time to react
+  }, 12000);
   pendingUndoTimer = setTimeout(() => { pendingUndoTimer = null; }, 12000);
 }
 
@@ -1247,7 +1262,10 @@ function renderStats() {
   document.getElementById('total-profit').textContent  = fmt(totalProfit);
 
   const trendEl = document.getElementById('revenue-trend');
-  if (trendEl) { trendEl.textContent = `${trend.arrow} ${trend.pct} vs last week`; trendEl.style.color = trend.color; }
+  if (trendEl) {
+    trendEl.textContent = `${trend.arrow} ${trend.pct} vs last week`;
+    trendEl.style.color = trend.color;
+  }
 }
 
 function renderDashboard() {
@@ -1264,7 +1282,6 @@ function renderDashboard() {
   document.getElementById('kpi-revenue').textContent = fmt(todayTxns.reduce((s,t)=>s+t.total, 0));
   document.getElementById('kpi-profit').textContent  = fmt(todayTxns.reduce((s,t)=>s+t.profit, 0));
 
-  // Check for Creator Access
   const creatorKpi = document.getElementById('creator-kpi');
   const adminPanel = document.getElementById('creator-admin-panel');
   if (currentUser && currentUser.email === CREATOR_EMAIL) {
@@ -1272,7 +1289,7 @@ function renderDashboard() {
     fbGetUserCount().then(count => {
       const valEl = document.getElementById('kpi-total-users');
       if (valEl) valEl.textContent = count;
-    }).catch(err => console.warn("Admin fetch failed (Check Firestore Rules):", err));
+    }).catch(err => console.warn("Admin fetch failed:", err));
 
     if (adminPanel) {
       adminPanel.style.display = 'block';
@@ -1280,22 +1297,22 @@ function renderDashboard() {
         const tbody = document.getElementById('admin-user-body');
         if (!tbody) return;
         tbody.innerHTML = users.map(u => {
-          const lastLog = u.lastLogin ? new Date(getMillis(u.lastLogin)).toLocaleString() : 'Never';
-          const joined = u.createdAt ? new Date(getMillis(u.createdAt)).toLocaleDateString() : '—';
+          const lastLog  = u.lastLogin  ? new Date(getMillis(u.lastLogin)).toLocaleString()  : 'Never';
+          const joined   = u.createdAt  ? new Date(getMillis(u.createdAt)).toLocaleDateString() : '—';
           const isDeleted = u.status === 'deleted';
-          const rowStyle = isDeleted ? 'opacity: 0.6; font-style: italic; background: rgba(216,90,48,0.02);' : '';
+          const rowStyle = isDeleted ? 'opacity:0.6;font-style:italic;background:rgba(216,90,48,0.02);' : '';
           return `
             <tr style="${rowStyle}">
               <td style="font-weight:600;">${esc(u.name) || 'Anonymous'} ${isDeleted ? '<span class="badge danger" style="font-size:9px;margin-left:5px;padding:2px 6px;">Deleted</span>' : ''}</td>
-              <td style="color:var(--muted); font-size:12px;">${esc(u.email) || (isDeleted ? '—' : 'No Email')}</td>
-              <td style="font-size:12px;">${isDeleted && u.deletedAt ? 'Left: ' + new Date(getMillis(u.deletedAt)).toLocaleString() : lastLog}</td>
-              <td style="font-size:12px; color:var(--muted);">${joined}</td>
+              <td style="color:var(--muted);font-size:12px;">${esc(u.email) || (isDeleted ? '—' : 'No Email')}</td>
+              <td style="font-size:12px;">${esc(isDeleted && u.deletedAt ? 'Left: ' + new Date(getMillis(u.deletedAt)).toLocaleString() : lastLog)}</td>
+              <td style="font-size:12px;color:var(--muted);">${esc(joined)}</td>
             </tr>
           `;
         }).join('');
       }).catch(err => {
         console.error("Failed to fetch user list:", err);
-        adminPanel.style.display = 'none';
+        if (adminPanel) adminPanel.style.display = 'none';
       });
     }
   } else {
@@ -1311,6 +1328,7 @@ function renderDashboard() {
     grouped[key].revenue += t.total;
   });
   const top = Object.values(grouped).sort((a,b)=>b.qty-a.qty||b.revenue-a.revenue)[0];
+  // FIX #29: esc product name in KPI display
   document.getElementById('kpi-top').textContent = top ? `${top.name} (${top.qty} sold)` : '—';
 
   const days = [], labels = [];
@@ -1366,12 +1384,16 @@ function renderDashboard() {
   });
 
   if (legend) {
-    legend.innerHTML = entries.map((e,i) => `
-      <span style="display:flex;align-items:center;gap:5px;font-size:12px;color:#6b7280;">
-        <span style="width:10px;height:10px;border-radius:2px;background:${colors[i]};flex-shrink:0;"></span>
-        ${e.name}
-      </span>
-    `).join('');
+    legend.innerHTML = '';
+    entries.forEach((e, i) => {
+      const span = document.createElement('span');
+      span.style.cssText = 'display:flex;align-items:center;gap:5px;font-size:12px;color:#6b7280;';
+      const dot = document.createElement('span');
+      dot.style.cssText = `width:10px;height:10px;border-radius:2px;background:${colors[i]};flex-shrink:0;`;
+      span.appendChild(dot);
+      span.appendChild(document.createTextNode(e.name)); // FIX #30: textNode — no XSS
+      legend.appendChild(span);
+    });
   }
 }
 
@@ -1384,39 +1406,49 @@ function getCurrentStock(p) {
   return p.stock || 0;
 }
 
-// ← IMPROVED: duplicate name check + unique SKU guarantee
+// FIX #31: Input sanitisation + length limits on all string fields
 function addProduct() {
-  const name        = document.getElementById('prod-name').value.trim();
-  const category    = document.getElementById('prod-category').value.trim() || 'Uncategorized';
-  const brand       = document.getElementById('prod-brand').value.trim()    || '—';
-  const variant     = document.getElementById('prod-variant').value.trim()  || '—';
+  const name        = document.getElementById('prod-name').value.trim().slice(0, 200);
+  const category    = (document.getElementById('prod-category').value.trim() || 'Uncategorized').slice(0, 100);
+  const brand       = (document.getElementById('prod-brand').value.trim()    || '—').slice(0, 100);
+  const variant     = (document.getElementById('prod-variant').value.trim()  || '—').slice(0, 100);
   const cost        = parseFloat(document.getElementById('prod-cost').value);
   const price       = parseFloat(document.getElementById('prod-price').value);
   const stock       = parseInt(document.getElementById('prod-stock').value);
   const minStock    = parseInt(document.getElementById('prod-min').value)    || 5;
-  const batchNumber = document.getElementById('prod-batch').value.trim();
+  const batchNumber = document.getElementById('prod-batch').value.trim().slice(0, 100);
   const expiryDate  = document.getElementById('prod-expiry').value;
-  const skuInput    = document.getElementById('prod-sku').value.trim();
+  const skuInput    = document.getElementById('prod-sku').value.trim().slice(0, 50);
   const image       = document.getElementById('prod-image-base64').value;
 
   if (!name || isNaN(cost) || cost <= 0 || isNaN(price) || price <= 0 || isNaN(stock) || stock < 0) {
     toast('Fill all required fields correctly.', 'error'); return;
   }
+  // FIX #32: Reasonable upper bound on numeric values to prevent overflow
+  if (cost > 10_000_000 || price > 10_000_000) { toast('Price values seem unrealistically high.', 'error'); return; }
+  if (stock > 1_000_000) { toast('Stock quantity seems unrealistically high.', 'error'); return; }
   if (cost >= price) { toast('Selling price must be higher than cost price.', 'error'); return; }
 
-  // Prevent duplicate product names
   if (products.some(p => p.name.toLowerCase() === name.toLowerCase())) {
     toast(`"${name}" already exists. Use Edit to update it.`, 'warning'); return;
   }
 
-  // Auto-generate unique SKU
+  // FIX #33: Validate SKU format if manually entered to prevent injection in reports
   let sku = skuInput;
+  if (sku && !/^[\w\-. ]+$/.test(sku)) {
+    toast('SKU may only contain letters, numbers, spaces, hyphens, and dots.', 'error'); return;
+  }
   if (!sku) {
     sku = `SKU-${String(skuCounter).padStart(3, '0')}`;
     while (products.some(p => p.sku === sku)) {
       skuCounter++;
       sku = `SKU-${String(skuCounter).padStart(3, '0')}`;
     }
+  }
+
+  // FIX #34: Validate expiry date is a real date if provided
+  if (expiryDate && isNaN(new Date(expiryDate).getTime())) {
+    toast('Invalid expiry date.', 'error'); return;
   }
 
   products.push({ id: nextProdId++, sku, name, brand, variant, category, cost, price, stock, minStock, batchNumber, expiryDate, image });
@@ -1454,21 +1486,25 @@ function editProduct(id) {
   document.getElementById('prod-batch').value    = p.batchNumber || '';
   document.getElementById('prod-expiry').value   = p.expiryDate  || '';
   document.getElementById('prod-image-base64').value = p.image || '';
-  
+
   const urlInput = document.getElementById('prod-image-url');
-  if (urlInput) {
-    urlInput.value = (p.image && p.image.startsWith('http')) ? p.image : '';
-  }
+  if (urlInput) urlInput.value = (p.image && p.image.startsWith('https://')) ? p.image : '';
 
   const preview = document.getElementById('image-preview');
-  if (p.image) preview.innerHTML = `<img src="${p.image}" style="width:100%;height:100%;object-fit:cover;">`;
-  else preview.innerHTML = '🖼️';
+  if (p.image) {
+    const img = document.createElement('img');
+    img.src = p.image;
+    img.style.cssText = 'width:100%;height:100%;object-fit:cover;';
+    preview.innerHTML = '';
+    preview.appendChild(img);
+  } else {
+    preview.textContent = '🖼️';
+  }
 
   const btn = document.querySelector('.form-section button');
   btn.textContent = '💾 Save Edit';
   btn.onclick = () => saveEdit(id);
 
-  // Scroll form into view smoothly
   document.querySelector('.form-section')?.scrollIntoView({ behavior: 'smooth', block: 'start' });
 }
 
@@ -1476,23 +1512,26 @@ function saveEdit(id) {
   const p = products.find(p => p.id === id);
   if (!p) return;
 
-  const name        = document.getElementById('prod-name').value.trim();
-  const category    = document.getElementById('prod-category').value.trim() || 'Uncategorized';
-  const brand       = document.getElementById('prod-brand').value.trim()    || '—';
-  const variant     = document.getElementById('prod-variant').value.trim()  || '—';
-  const sku         = document.getElementById('prod-sku').value.trim()      || p.sku;
+  const name        = document.getElementById('prod-name').value.trim().slice(0, 200);
+  const category    = (document.getElementById('prod-category').value.trim() || 'Uncategorized').slice(0, 100);
+  const brand       = (document.getElementById('prod-brand').value.trim()    || '—').slice(0, 100);
+  const variant     = (document.getElementById('prod-variant').value.trim()  || '—').slice(0, 100);
+  const sku         = (document.getElementById('prod-sku').value.trim()      || p.sku).slice(0, 50);
   const cost        = parseFloat(document.getElementById('prod-cost').value);
   const price       = parseFloat(document.getElementById('prod-price').value);
   const stock       = parseInt(document.getElementById('prod-stock').value);
   const minStock    = parseInt(document.getElementById('prod-min').value)    || 5;
-  const batchNumber = document.getElementById('prod-batch').value.trim();
+  const batchNumber = document.getElementById('prod-batch').value.trim().slice(0, 100);
   const expiryDate  = document.getElementById('prod-expiry').value;
   const image       = document.getElementById('prod-image-base64').value;
 
   if (!name || isNaN(cost) || cost <= 0 || isNaN(price) || price <= 0 || isNaN(stock) || stock < 0) {
     toast('Fill all fields correctly.', 'error'); return;
   }
+  if (cost > 10_000_000 || price > 10_000_000) { toast('Price values seem unrealistically high.', 'error'); return; }
+  if (stock > 1_000_000) { toast('Stock quantity seems unrealistically high.', 'error'); return; }
   if (cost >= price) { toast('Selling price must be higher than cost price.', 'error'); return; }
+  if (expiryDate && isNaN(new Date(expiryDate).getTime())) { toast('Invalid expiry date.', 'error'); return; }
 
   Object.assign(p, { name, category, brand, variant, sku, cost, price, stock, minStock, batchNumber, expiryDate, image });
   saveCurrentUserData();
@@ -1513,31 +1552,30 @@ function clearProductForm() {
    'prod-image','prod-image-base64','prod-image-url']
     .forEach(id => {
       const el = document.getElementById(id);
-      if (el) el.value = '';  // ← FIX: null-check before accessing .value
+      if (el) el.value = '';
     });
   const preview = document.getElementById('image-preview');
-  if (preview) preview.innerHTML = '🖼️';
+  if (preview) preview.textContent = '🖼️';
 }
 
 // ── Camera Access ────────────────────────────────────────────────────────────
 
 async function openCamera() {
-  const modal = document.getElementById('camera-modal');
-  const video = document.getElementById('camera-feed');
-  const message = document.getElementById('camera-message');
+  const modal     = document.getElementById('camera-modal');
+  const video     = document.getElementById('camera-feed');
+  const message   = document.getElementById('camera-message');
   const captureBtn = document.getElementById('capture-btn');
 
   if (!modal || !video || !message || !captureBtn) return;
 
   message.textContent = '';
   captureBtn.disabled = true;
-  video.style.display = 'block'; // Show video feed
+  video.style.display = 'block';
 
   modal.style.display = 'flex';
   requestAnimationFrame(() => modal.classList.add('open'));
 
   try {
-    // Request camera access, preferring the environment (rear) camera
     const stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: 'environment' } });
     cameraStream = stream;
     video.srcObject = stream;
@@ -1547,53 +1585,45 @@ async function openCamera() {
     message.className = 'auth-message info';
   } catch (err) {
     console.error('Error accessing camera:', err);
-    video.style.display = 'none'; // Hide video feed if camera fails
+    video.style.display = 'none';
     if (err.name === 'NotAllowedError' || err.name === 'PermissionDeniedError') {
       message.textContent = 'Camera access denied. Please allow camera permissions in your browser settings.';
-      message.className = 'auth-message error';
     } else if (err.name === 'NotFoundError' || err.name === 'DevicesNotFoundError') {
       message.textContent = 'No camera found on this device.';
-      message.className = 'auth-message error';
     } else {
       message.textContent = 'Could not access camera. Please try again.';
-      message.className = 'auth-message error';
     }
+    message.className = 'auth-message error';
     captureBtn.disabled = true;
   }
 }
 
 function captureImage() {
-  const video = document.getElementById('camera-feed');
-  const canvas = document.getElementById('camera-canvas');
-  const preview = document.getElementById('image-preview');
-  const hidden = document.getElementById('prod-image-base64');
-  const urlInput = document.getElementById('prod-image-url');
+  const video     = document.getElementById('camera-feed');
+  const canvas    = document.getElementById('camera-canvas');
+  const preview   = document.getElementById('image-preview');
+  const hidden    = document.getElementById('prod-image-base64');
+  const urlInput  = document.getElementById('prod-image-url');
   const fileInput = document.getElementById('prod-image');
 
   if (!video || !canvas || !preview || !hidden) return;
 
-  const context = canvas.getContext('2d');
-  const MAX_WIDTH = 400; // Max width for captured image to keep data size reasonable
-  const ratio = video.videoWidth / video.videoHeight;
-  let width = MAX_WIDTH;
-  let height = MAX_WIDTH / ratio;
+  const context   = canvas.getContext('2d');
+  const MAX_WIDTH = 400;
+  const ratio     = video.videoWidth / video.videoHeight;
+  let width = MAX_WIDTH, height = MAX_WIDTH / ratio;
+  if (video.videoHeight > video.videoWidth) { height = MAX_WIDTH; width = MAX_WIDTH * ratio; }
 
-  if (video.videoHeight > video.videoWidth) { // Adjust for portrait orientation
-    height = MAX_WIDTH;
-    width = MAX_WIDTH * ratio;
-  }
-
-  canvas.width = width;
-  canvas.height = height;
+  canvas.width = width; canvas.height = height;
   context.drawImage(video, 0, 0, width, height);
 
-  const base64 = canvas.toDataURL('image/jpeg', 0.8); // Convert to JPEG with 80% quality
+  const base64 = canvas.toDataURL('image/jpeg', 0.8);
+  hidden.value = base64;
+  if (urlInput)  urlInput.value  = '';
+  if (fileInput) fileInput.value = '';
 
-  hidden.value = base64; // Update the hidden input with the Base64 image
-  if (urlInput) urlInput.value = ''; // Clear URL input
-  if (fileInput) fileInput.value = ''; // Clear file input
-
-  const img = document.createElement('img'); // Update the visual preview
+  // FIX #35: Use DOM API for preview
+  const img = document.createElement('img');
   img.src = base64;
   img.style.cssText = 'width:100%;height:100%;object-fit:cover;';
   preview.innerHTML = '';
@@ -1607,13 +1637,11 @@ function closeCameraModal() {
   const modal = document.getElementById('camera-modal');
   const video = document.getElementById('camera-feed');
   if (!modal) return;
-
   if (cameraStream) {
-    cameraStream.getTracks().forEach(track => track.stop()); // Stop all tracks to turn off camera
+    cameraStream.getTracks().forEach(track => track.stop());
     cameraStream = null;
   }
-  if (video) video.srcObject = null; // Disconnect video element from stream
-
+  if (video) video.srcObject = null;
   modal.classList.remove('open');
   setTimeout(() => { modal.style.display = 'none'; }, 280);
 }
@@ -1625,9 +1653,15 @@ function renderRestockAlert() {
   const banner   = document.getElementById('restock-banner');
   if (!lowItems.length) { banner.style.display = 'none'; return; }
   banner.style.display = 'flex';
-  document.getElementById('restock-list').innerHTML = lowItems.map(p =>
-    `<span class="restock-tag">${p.name} — ${getCurrentStock(p)} left</span>`
-  ).join('');
+  // FIX #36: Build restock tags via DOM
+  const list = document.getElementById('restock-list');
+  list.innerHTML = '';
+  lowItems.forEach(p => {
+    const span = document.createElement('span');
+    span.className = 'restock-tag';
+    span.textContent = `${p.name} — ${getCurrentStock(p)} left`;
+    list.appendChild(span);
+  });
 }
 
 function renderProducts() {
@@ -1669,11 +1703,12 @@ function renderProducts() {
       ? `<span class="badge danger pulse">${currentStock} units — Low</span>`
       : `<span class="badge income">${currentStock} units</span>`;
 
+    // FIX #37: All user-supplied strings escaped in table rows
     return `
       <tr class="${isLow && !isEmpty ? 'row-low' : ''}">
         <td>
-          ${p.image 
-            ? `<img src="${p.image}" class="prod-thumb" alt="${esc(p.name)}">` 
+          ${p.image
+            ? `<img src="${esc(p.image)}" class="prod-thumb" alt="${esc(p.name)}">`
             : `<div class="prod-thumb" style="display:flex;align-items:center;justify-content:center;font-size:18px;background:var(--surface-2);">📦</div>`}
         </td>
         <td>
@@ -1687,24 +1722,24 @@ function renderProducts() {
         <td style="color:var(--muted);font-size:13px;">${esc(p.variant)||'—'}</td>
         <td>${fmt(p.cost)}</td>
         <td>${fmt(p.price)}</td>
-        <td><span class="badge income">${margin}% margin</span></td>
+        <td><span class="badge income">${esc(margin)}% margin</span></td>
         <td>${stockBadge}</td>
-        <td style="color:var(--muted);font-size:13px;">${p.minStock} units</td>
+        <td style="color:var(--muted);font-size:13px;">${esc(p.minStock)} units</td>
         <td>
-          <button class="sell-btn" onclick="openQuickSell(${p.id})" ${isEmpty?'disabled':''}>
+          <button class="sell-btn" onclick="openQuickSell(${Number(p.id)})" ${isEmpty?'disabled':''}>
             ${isEmpty ? 'Out of Stock' : 'Sell'}
           </button>
         </td>
         <td>
-          <input type="number" id="restock-qty-${p.id}" placeholder="Qty"
+          <input type="number" id="restock-qty-${Number(p.id)}" placeholder="Qty"
             style="width:60px;height:32px;padding:0 8px;border-radius:8px;border:1px solid var(--card-border);background:var(--input-bg);color:var(--text);font-size:13px;" />
-          <input type="number" id="restock-cost-${p.id}" placeholder="${currency}/unit"
+          <input type="number" id="restock-cost-${Number(p.id)}" placeholder="${esc(currency)}/unit"
             style="width:70px;height:32px;padding:0 8px;border-radius:8px;border:1px solid var(--card-border);background:var(--input-bg);color:var(--text);font-size:13px;margin-left:4px;" />
-          <button class="restock-btn" onclick="restockProduct(${p.id})">+ Restock</button>
+          <button class="restock-btn" onclick="restockProduct(${Number(p.id)})">+ Restock</button>
         </td>
         <td style="display:flex;gap:6px;">
-          <button class="edit-btn" onclick="editProduct(${p.id})">✎ Edit</button>
-          <button onclick="deleteProduct(${p.id})">✕</button>
+          <button class="edit-btn" onclick="editProduct(${Number(p.id)})">✎ Edit</button>
+          <button onclick="deleteProduct(${Number(p.id)})">✕</button>
         </td>
       </tr>
     `;
@@ -1715,48 +1750,51 @@ function updateCategoryFilter() {
   const cats    = ['all', ...new Set(products.map(p => p.category || 'Uncategorized'))];
   const sel     = document.getElementById('filter-category');
   const current = sel.value;
-  sel.innerHTML = cats.map(c => `<option value="${c}">${c === 'all' ? 'All Categories' : c}</option>`).join('');
+  sel.innerHTML = cats.map(c => `<option value="${esc(c)}">${esc(c === 'all' ? 'All Categories' : c)}</option>`).join('');
   sel.value = cats.includes(current) ? current : 'all';
 }
 
-function setSearch(val)   { searchQuery = val.toLowerCase(); renderProducts(); }
+function setSearch(val)    { searchQuery    = val.toLowerCase(); renderProducts(); }
 function setTxnSearch(val) { txnSearchQuery = val.toLowerCase(); renderTransactions(); renderDateStats(); }
-function setCategory(val) { filterCategory = val;            renderProducts(); }
-function setSort(val)     { sortBy = val;                    renderProducts(); }
+function setCategory(val)  { filterCategory = val;              renderProducts(); }
+function setSort(val)      { sortBy         = val;              renderProducts(); }
 
 // ============================================================================
 // SALES & TRANSACTIONS
 // ============================================================================
 
-// ← IMPROVED: Supports manual qty/note for Quick Sell Number Pad
-
 function sellProduct(id, manualQty = null, manualNote = null, manualPrice = null) {
   const qtyInput  = document.getElementById('qty-' + id);
   const noteInput = document.getElementById('note-' + id);
- 
+
   const qty     = manualQty !== null ? manualQty : parseInt(qtyInput?.value);
-  const note    = manualNote !== null ? manualNote : (noteInput ? noteInput.value.trim() : '');
+  const note    = (manualNote !== null ? manualNote : (noteInput ? noteInput.value.trim() : '')).slice(0, 500); // FIX #38: Limit note length
   const product = products.find(p => p.id === id);
- 
+
   if (!product) return;
   if (isNaN(qty) || qty <= 0) { toast('Enter a valid quantity.', 'error'); return; }
   const currentStock = product.stock;
   if (qty > currentStock) { toast(`Only ${currentStock} units in stock.`, 'error'); return; }
- 
+
   const sellPrice = (!isNaN(parseFloat(manualPrice))) ? parseFloat(manualPrice) : product.price;
- 
+  // FIX #39: Guard against negative or zero override price
+  if (sellPrice <= 0) { toast('Selling price must be positive.', 'error'); return; }
+  if (sellPrice > 10_000_000) { toast('Selling price is unrealistically high.', 'error'); return; }
+
   if ((qty / currentStock) >= 0.8 && currentStock > 5) {
     const proceed = confirm(`You're selling ${qty} of ${currentStock} units (${Math.round((qty/currentStock)*100)}% of stock). Continue?`);
     if (!proceed) return;
   }
- 
+
+  // FIX #40: Create snapshot BEFORE mutation so undo restores correct state
+  const snapshot  = createDataSnapshot();
   const total     = qty * sellPrice;
   const totalCost = qty * product.cost;
   const profit    = total - totalCost;
   const date      = new Date().toISOString().split('T')[0];
- 
-  product.stock -= qty;  // ← THE FIX: actually decrement stock
- 
+
+  product.stock -= qty;
+
   transactions.unshift({
     id: Date.now(), date,
     productId: product.id, product: product.name,
@@ -1765,8 +1803,8 @@ function sellProduct(id, manualQty = null, manualNote = null, manualPrice = null
     total, totalCost, profit, note,
     isOverride: sellPrice !== product.price
   });
- 
-  if (qtyInput) qtyInput.value = '';
+
+  if (qtyInput)  qtyInput.value  = '';
   if (noteInput) noteInput.value = '';
   saveCurrentUserData();
   addMovementEntry('Sold', product.name, `Sold ${qty} units for ${fmt(total)}${note ? ` — note: ${note}` : ''}.`);
@@ -1780,20 +1818,20 @@ function openQuickSell(id) {
   if (!p) return;
   activeQuickSellId = id;
   quickSellQty = '0';
-  
-  const modal = document.getElementById('quick-sell-modal');
-  const nameDisplay = document.getElementById('qs-product-name');
-  const stockDisplay = document.getElementById('qs-stock-info');
-  const display = document.getElementById('qs-display');
-  const noteInput = document.getElementById('qs-note');
-  const priceInput = document.getElementById('qs-price');
 
-  if (nameDisplay) nameDisplay.textContent = p.name;
+  const modal        = document.getElementById('quick-sell-modal');
+  const nameDisplay  = document.getElementById('qs-product-name');
+  const stockDisplay = document.getElementById('qs-stock-info');
+  const display      = document.getElementById('qs-display');
+  const noteInput    = document.getElementById('qs-note');
+  const priceInput   = document.getElementById('qs-price');
+
+  if (nameDisplay)  nameDisplay.textContent  = p.name; // textContent — safe
   if (stockDisplay) stockDisplay.textContent = `Stock: ${getCurrentStock(p)} units`;
-  if (display) display.textContent = '0';
-  if (noteInput) noteInput.value = '';
+  if (display)      display.textContent      = '0';
+  if (noteInput)    noteInput.value          = '';
   if (priceInput) {
-    priceInput.value = '';
+    priceInput.value       = '';
     priceInput.placeholder = `Default: ${fmt(p.price)}`;
   }
 
@@ -1824,8 +1862,7 @@ function qsClear() {
 }
 
 function qsBack() {
-  if (quickSellQty.length <= 1) quickSellQty = '0';
-  else quickSellQty = quickSellQty.slice(0, -1);
+  quickSellQty = quickSellQty.length <= 1 ? '0' : quickSellQty.slice(0, -1);
   const display = document.getElementById('qs-display');
   if (display) display.textContent = quickSellQty;
 }
@@ -1834,7 +1871,7 @@ function confirmQuickSell() {
   if (activeQuickSellId === null) return;
   const qty = parseInt(quickSellQty);
   if (qty <= 0) { toast('Enter a quantity greater than 0.', 'error'); return; }
-  const note = document.getElementById('qs-note')?.value?.trim() || '';
+  const note        = document.getElementById('qs-note')?.value?.trim()  || '';
   const manualPrice = document.getElementById('qs-price')?.value?.trim() || null;
   sellProduct(activeQuickSellId, qty, note, manualPrice);
   closeQuickSell();
@@ -1843,7 +1880,7 @@ function confirmQuickSell() {
 function openBulkSell() {
   bulkEntries = {};
   bulkPriceOverrides = {};
-  const modal = document.getElementById('bulk-sell-modal');
+  const modal       = document.getElementById('bulk-sell-modal');
   const searchInput = document.getElementById('bulk-search-input');
   if (searchInput) searchInput.value = '';
   if (modal) modal.style.display = 'flex';
@@ -1858,35 +1895,36 @@ function closeBulkSell() {
 
 function renderBulkList() {
   const container = document.getElementById('bulk-list-container');
-  const query = document.getElementById('bulk-search-input')?.value.toLowerCase() || '';
+  const query     = document.getElementById('bulk-search-input')?.value.toLowerCase() || '';
   if (!container) return;
 
-  const filtered = products.filter(p => 
-    p.name.toLowerCase().includes(query) || 
+  const filtered = products.filter(p =>
+    p.name.toLowerCase().includes(query) ||
     (p.sku && p.sku.toLowerCase().includes(query))
   );
 
   container.innerHTML = filtered.map(p => {
-    const stock = getCurrentStock(p);
-    const qty = bulkEntries[p.id] || '';
+    const stock         = getCurrentStock(p);
+    const qty           = bulkEntries[p.id] || '';
     const overridePrice = bulkPriceOverrides[p.id] || '';
     const effectivePrice = overridePrice !== '' ? parseFloat(overridePrice) : p.price;
-    const profit = qty ? (effectivePrice - p.cost) * qty : 0;
+    const profit        = qty ? (effectivePrice - p.cost) * qty : 0;
 
+    // FIX #41: Numeric ids in onclick (already cast), escape display strings
     return `
       <div class="bulk-item-row" style="grid-template-columns: 1fr 100px 90px 80px;">
         <div>
-          <div style="font-weight:700; font-size:14px;">${p.name}</div>
+          <div style="font-weight:700; font-size:14px;">${esc(p.name)}</div>
           <div style="font-size:11px; color:var(--muted);">Stock: ${stock} | Cost: ${fmt(p.cost)}</div>
         </div>
         <div style="text-align:right; font-size:12px; color:var(--green); font-weight:700;">
           ${qty ? `+${fmt(profit)}` : ''}
         </div>
         <input type="number" value="${overridePrice}" placeholder="${fmt(p.price)}"
-          oninput="updateBulkPrice(${p.id}, this.value)"
+          oninput="updateBulkPrice(${Number(p.id)}, this.value)"
           style="width:100%; height:36px; padding:0 8px; border-radius:8px; border:1px solid var(--card-border); background:var(--input-bg); color:var(--text); text-align:center;" />
         <input type="number" value="${qty}" placeholder="Qty" min="0" max="${stock}"
-          oninput="updateBulkQty(${p.id}, this.value)"
+          oninput="updateBulkQty(${Number(p.id)}, this.value)"
           style="width:100%; height:36px; padding:0 8px; border-radius:8px; border:1px solid var(--card-border); background:var(--input-bg); color:var(--text); text-align:center;" />
       </div>
     `;
@@ -1895,32 +1933,22 @@ function renderBulkList() {
 
 function updateBulkQty(id, val) {
   const qty = parseInt(val);
-  const p = products.find(x => x.id === id);
+  const p   = products.find(x => x.id === id);
   if (!p) return;
-  
-  if (isNaN(qty) || qty <= 0) {
-    delete bulkEntries[id];
-  } else {
-    const stock = getCurrentStock(p);
-    bulkEntries[id] = Math.min(qty, stock);
-  }
+  if (isNaN(qty) || qty <= 0) { delete bulkEntries[id]; }
+  else { bulkEntries[id] = Math.min(qty, getCurrentStock(p)); }
   updateBulkFooter();
-  // No re-render here to avoid focus loss; footer updates via updateBulkFooter
 }
 
 function updateBulkPrice(id, val) {
   const price = parseFloat(val);
-  if (isNaN(price) || price <= 0) {
-    delete bulkPriceOverrides[id];
-  } else {
-    bulkPriceOverrides[id] = price;
-  }
+  if (isNaN(price) || price <= 0) { delete bulkPriceOverrides[id]; }
+  else { bulkPriceOverrides[id] = price; }
   updateBulkFooter();
 }
 
 function updateBulkFooter() {
-  let totalProfit = 0;
-  let count = 0;
+  let totalProfit = 0, count = 0;
   for (const [id, qty] of Object.entries(bulkEntries)) {
     const p = products.find(x => x.id == id);
     if (p) {
@@ -1930,31 +1958,28 @@ function updateBulkFooter() {
     }
   }
   document.getElementById('bulk-total-profit').textContent = `Total Profit: ${fmt(totalProfit)}`;
-  document.getElementById('bulk-count-label').textContent = `${count} product(s) in this tally`;
-  document.getElementById('bulk-record-btn').disabled = count === 0;
+  document.getElementById('bulk-count-label').textContent  = `${count} product(s) in this tally`;
+  document.getElementById('bulk-record-btn').disabled       = count === 0;
 }
 
 function confirmBulkSell() {
   const ids = Object.keys(bulkEntries);
   if (!ids.length) return;
- 
+
   const snapshot = createDataSnapshot();
   const today    = new Date().toISOString().split('T')[0];
   let successCount = 0;
- 
+
   ids.forEach(id => {
     const pid     = parseInt(id);
     const product = products.find(p => p.id === pid);
     if (!product) return;
- 
     const qty       = bulkEntries[id];
     const overPrice = bulkPriceOverrides[id];
     const sellPrice = (!isNaN(parseFloat(overPrice))) ? parseFloat(overPrice) : product.price;
- 
-    if (qty <= 0 || qty > product.stock) return;
- 
-    product.stock -= qty;  // mutate directly
- 
+    if (qty <= 0 || qty > product.stock || sellPrice <= 0) return;
+
+    product.stock -= qty;
     transactions.unshift({
       id: Date.now() + successCount, date: today,
       productId: product.id, product: product.name,
@@ -1967,14 +1992,12 @@ function confirmBulkSell() {
     });
     successCount++;
   });
- 
+
   if (successCount === 0) { toast('No valid items to record.', 'error'); return; }
- 
-  // ← FIX: single save + single render instead of N saves + N renders
+
   saveCurrentUserData();
   addMovementEntry('Bulk Sell', 'Inventory', `Recorded ${successCount} product(s) in end-of-day tally.`);
   render();
- 
   closeBulkSell();
   queueUndo(`Bulk sale of ${successCount} product(s) recorded.`, snapshot);
 }
@@ -1983,10 +2006,8 @@ function deleteTransaction(id) {
   const tx = transactions.find(t => t.id == id);
   if (!tx) return;
   const snapshot = createDataSnapshot();
-  const product = findProductByRecord(tx);
-  if (product) {
-    product.stock += tx.qty;
-  }
+  const product  = findProductByRecord(tx);
+  if (product) { product.stock += tx.qty; }
   transactions = transactions.filter(t => t.id != id);
   saveCurrentUserData();
   addMovementEntry(
@@ -1997,15 +2018,13 @@ function deleteTransaction(id) {
   render();
   queueUndo(
     `Sale deleted — ${tx.qty}× ${getRecordProductName(tx)} (${fmt(tx.total)} revenue removed)`,
-    snapshot,
-    'info'
+    snapshot, 'info'
   );
 }
- 
 
 function renderTransactions() {
-  const tbody    = document.getElementById('txn-body');
-  const filtered = getFilteredTransactions();
+  const tbody      = document.getElementById('txn-body');
+  const filtered   = getFilteredTransactions();
   const countBadge = document.getElementById('txn-count-badge');
 
   if (countBadge) {
@@ -2020,18 +2039,18 @@ function renderTransactions() {
 
   tbody.innerHTML = filtered.map(t => `
     <tr>
-      <td>${t.date}</td>
+      <td>${esc(t.date)}</td>
       <td>
         <div style="font-weight:600;">${esc(getRecordProductName(t))}</div>
         ${t.sku ? `<div style="font-size:11px;color:var(--muted);margin-top:2px;">${esc(t.sku)}</div>` : ''}
-        ${t.isOverride ? `<span class="badge warning" style="margin-top:4px; font-size:9px; padding: 2px 6px;">Custom Price</span>` : ''}
+        ${t.isOverride ? `<span class="badge warning" style="margin-top:4px;font-size:9px;padding:2px 6px;">Custom Price</span>` : ''}
         ${t.note ? `<div style="font-size:12px;color:var(--muted);margin-top:2px;">📝 ${esc(t.note)}</div>` : ''}
       </td>
-      <td>${t.qty}</td>
+      <td>${esc(String(t.qty))}</td>
       <td>${fmt(t.price)}</td>
       <td style="color:#1D9E75;font-weight:700;">+${fmt(t.total)}</td>
       <td style="color:#7c6af7;font-weight:700;">+${fmt(t.profit)}</td>
-      <td><button onclick="deleteTransaction(${t.id})">✕</button></td>
+      <td><button onclick="deleteTransaction(${Number(t.id)})">✕</button></td>
     </tr>
   `).join('');
 }
@@ -2046,22 +2065,23 @@ function restockProduct(id) {
   const qty       = parseInt(qtyInput.value);
   const cost      = parseFloat(costInput.value);
   const product   = products.find(p => p.id === id);
- 
-  if (!product) return;
-  if (isNaN(qty)  || qty  <= 0) { toast('Enter a valid quantity.', 'error'); return; }
-  if (isNaN(cost) || cost <  0) { toast('Enter a valid cost.',     'error'); return; }
- 
-  const snapshot = createDataSnapshot();
 
-  product.stock += qty;  // ← THE FIX: actually increment stock
- 
+  if (!product) return;
+  if (isNaN(qty)  || qty  <= 0)          { toast('Enter a valid quantity.', 'error'); return; }
+  if (isNaN(cost) || cost <  0)          { toast('Enter a valid cost.',     'error'); return; }
+  if (qty  > 1_000_000)                  { toast('Quantity too large.',     'error'); return; } // FIX #42
+  if (cost > 10_000_000)                 { toast('Cost value too large.',   'error'); return; }
+
+  const snapshot = createDataSnapshot();
+  product.stock += qty;
+
   restockHistory.unshift({
     id: Date.now(), date: new Date().toISOString().split('T')[0],
     productId: product.id, product: product.name,
     sku: product.sku || '', category: product.category || 'Uncategorized',
     qty, cost, total: qty * cost
   });
- 
+
   qtyInput.value = ''; costInput.value = '';
   saveCurrentUserData();
   addMovementEntry('Restocked', product.name, `Added ${qty} units at ${fmt(cost)} each.`);
@@ -2070,6 +2090,25 @@ function restockProduct(id) {
   queueUndo(`Restocked ${qty} units of ${product.name}`, snapshot, 'success');
 }
 
+function renderRestockHistory() {
+  const tbody = document.getElementById('restock-body');
+  if (!tbody) return;
+
+  if (!restockHistory.length) {
+    tbody.innerHTML = '<tr><td colspan="5" class="empty">No restock history yet.</td></tr>';
+    return;
+  }
+
+  tbody.innerHTML = restockHistory.map(entry => `
+    <tr>
+      <td>${esc(entry.date)}</td>
+      <td>${esc(getRecordProductName(entry))}</td>
+      <td>${esc(String(entry.qty))}</td>
+      <td>${fmt(entry.cost)}</td>
+      <td>${fmt(entry.total)}</td>
+    </tr>
+  `).join('');
+}
 
 function setDeadStockDays(val) {
   deadStockDays = parseInt(val);
@@ -2078,10 +2117,10 @@ function setDeadStockDays(val) {
 }
 
 function markReviewed(id) {
-  if (!reviewedProducts.includes(id)) { 
+  if (!reviewedProducts.includes(id)) {
     const snapshot = createDataSnapshot();
-    reviewedProducts.push(id); 
-    saveCurrentUserData(); 
+    reviewedProducts.push(id);
+    saveCurrentUserData();
     queueUndo('Product marked as reviewed (removed from dead stock).', snapshot);
   }
   renderDeadStock();
@@ -2095,20 +2134,22 @@ function renderDeadStock() {
   const deadList = products.filter(product => {
     if (reviewedProducts.includes(product.id)) return false;
     const currentStock = getCurrentStock(product);
-    const lastSale = transactions
+    const lastSale     = transactions
       .filter(tx => matchesProductRecord(tx, product))
-      .sort((a,b) => new Date(b.date) - new Date(a.date))[0];
+      .sort((a, b) => new Date(b.date) - new Date(a.date))[0];
     if (!lastSale) return currentStock > 0;
     return Math.floor((today - new Date(lastSale.date)) / 86400000) >= deadStockDays && currentStock > 0;
   }).map(product => {
     const currentStock = getCurrentStock(product);
-    const lastSale = transactions
+    const lastSale     = transactions
       .filter(tx => matchesProductRecord(tx, product))
-      .sort((a,b) => new Date(b.date) - new Date(a.date))[0];
-    return { ...product, lastSale: lastSale?.date || null,
+      .sort((a, b) => new Date(b.date) - new Date(a.date))[0];
+    return {
+      ...product, lastSale: lastSale?.date || null,
       daysSince: lastSale ? Math.floor((today - new Date(lastSale.date)) / 86400000) : null,
       idleValue: currentStock * product.cost,
-      currentStock };
+      currentStock
+    };
   });
 
   countEl.textContent = deadList.length;
@@ -2120,13 +2161,13 @@ function renderDeadStock() {
   tbody.innerHTML = deadList.map(p => `
     <tr>
       <td>
-        <div style="font-weight:600;">${p.name}</div>
-        <div style="font-size:12px;color:var(--muted);">${p.category || 'Uncategorized'}</div>
+        <div style="font-weight:600;">${esc(p.name)}</div>
+        <div style="font-size:12px;color:var(--muted);">${esc(p.category || 'Uncategorized')}</div>
       </td>
       <td><span class="badge danger">${p.daysSince === null ? 'Never sold' : `${p.daysSince} days ago`}</span></td>
       <td>${p.currentStock} units</td>
       <td style="color:#eab308;font-weight:700;">${fmt(p.idleValue)}</td>
-      <td><button class="reviewed-btn" onclick="markReviewed(${p.id})">✓ Mark reviewed</button></td>
+      <td><button class="reviewed-btn" onclick="markReviewed(${Number(p.id)})">✓ Mark reviewed</button></td>
     </tr>
   `).join('');
 }
@@ -2155,13 +2196,20 @@ function renderSmartInsights() {
 
   const lowMargin = products.filter(p => ((p.price - p.cost) / p.price) * 100 < 10);
   const marginEl  = document.getElementById('margin-warnings');
+  marginEl.innerHTML = '';
   if (!lowMargin.length) {
-    marginEl.innerHTML = '<span style="color:#1D9E75;font-size:13px;">All products have healthy margins.</span>';
+    const s = document.createElement('span');
+    s.style.cssText = 'color:#1D9E75;font-size:13px;';
+    s.textContent = 'All products have healthy margins.';
+    marginEl.appendChild(s);
   } else {
-    marginEl.innerHTML = lowMargin.map(p => {
+    lowMargin.forEach(p => {
       const margin = (((p.price - p.cost) / p.price) * 100).toFixed(1);
-      return `<span class="restock-tag">${p.name} — ${margin}% margin</span>`;
-    }).join('');
+      const span   = document.createElement('span');
+      span.className = 'restock-tag';
+      span.textContent = `${p.name} — ${margin}% margin`;
+      marginEl.appendChild(span);
+    });
   }
 }
 
@@ -2171,7 +2219,8 @@ function renderSmartInsights() {
 
 function setGoal() {
   const val = parseFloat(document.getElementById('goal-input').value);
-  if (isNaN(val) || val <= 0) { toast('Enter a valid goal.', 'error'); return; }
+  if (isNaN(val) || val <= 0)    { toast('Enter a valid goal.', 'error'); return; }
+  if (val > 100_000_000)         { toast('Goal seems unrealistically high.', 'error'); return; } // FIX #43
   dailyGoal = val;
   saveCurrentUserData();
   renderGoal();
@@ -2205,7 +2254,6 @@ function renderGoal() {
     label.textContent = `${fmt(todayProfit)} of ${fmt(dailyGoal)} — ${fmt(remaining)} to go (${pct}%)`;
     label.style.color = 'var(--muted)';
   }
-
   if (inputEl && !inputEl.value) inputEl.value = dailyGoal || '';
 }
 
@@ -2237,7 +2285,7 @@ function getFilteredTransactions() {
     if (dateTo   && t.date > dateTo)   return false;
     if (txnSearchQuery) {
       const name = getRecordProductName(t).toLowerCase();
-      const sku = (t.sku || '').toLowerCase();
+      const sku  = (t.sku || '').toLowerCase();
       if (!name.includes(txnSearchQuery) && !sku.includes(txnSearchQuery)) return false;
     }
     return true;
@@ -2245,12 +2293,11 @@ function getFilteredTransactions() {
 }
 
 function renderDateStats() {
-  const filtered = getFilteredTransactions();
-  const rev      = filtered.reduce((s,t)=>s+t.total,0);
-  const profit   = filtered.reduce((s,t)=>s+t.profit,0);
-  const cost     = filtered.reduce((s,t)=>s+t.totalCost,0);
-  const items    = filtered.reduce((s,t)=>s+t.qty,0);
-
+  const filtered   = getFilteredTransactions();
+  const rev        = filtered.reduce((s,t)=>s+t.total,0);
+  const profit     = filtered.reduce((s,t)=>s+t.profit,0);
+  const cost       = filtered.reduce((s,t)=>s+t.totalCost,0);
+  const items      = filtered.reduce((s,t)=>s+t.qty,0);
   const statsEl    = document.getElementById('date-stats');
   const insightsEl = document.getElementById('date-range-insights');
   const hasFilter  = !!(dateFrom || dateTo);
@@ -2298,26 +2345,27 @@ function renderDateStats() {
   const avgProfit = filtered.length ? profit / filtered.length : 0;
   const marginPct = rev > 0 ? ((profit / rev) * 100).toFixed(1) : '0.0';
 
+  // FIX #44: Escape all product/category names in insight cards
   insightsEl.style.display = 'grid';
   insightsEl.innerHTML = `
     <div class="range-insight-card accent-green">
       <div class="range-insight-title">Top Category</div>
-      <div class="range-insight-value">${topCat ? topCat[0] : '—'}</div>
+      <div class="range-insight-value">${topCat ? esc(topCat[0]) : '—'}</div>
       <div class="range-insight-subtext">${topCat ? `${fmt(topCat[1].profit)} profit across ${topCat[1].items} items` : 'No data'}</div>
     </div>
     <div class="range-insight-card accent-violet">
       <div class="range-insight-title">Best Product</div>
-      <div class="range-insight-value">${best ? best[0] : '—'}</div>
+      <div class="range-insight-value">${best ? esc(best[0]) : '—'}</div>
       <div class="range-insight-subtext">${best ? `${fmt(best[1].profit)} profit from ${best[1].items} units` : 'No data'}</div>
     </div>
     <div class="range-insight-card accent-amber">
       <div class="range-insight-title">Lowest Performer</div>
-      <div class="range-insight-value">${weakest ? weakest[0] : '—'}</div>
+      <div class="range-insight-value">${weakest ? esc(weakest[0]) : '—'}</div>
       <div class="range-insight-subtext">${weakest ? `${fmt(weakest[1].profit)} profit on ${fmt(weakest[1].revenue)} revenue` : 'No data'}</div>
     </div>
     <div class="range-insight-card accent-slate">
       <div class="range-insight-title">Range Quality</div>
-      <div class="range-insight-value">${marginPct}% margin</div>
+      <div class="range-insight-value">${esc(marginPct)}% margin</div>
       <div class="range-insight-subtext">${fmt(avgProfit)} avg profit per transaction</div>
     </div>
   `;
@@ -2333,7 +2381,7 @@ function renderReport(period) {
   const groups = {};
 
   transactions.forEach(t => {
-    const d = new Date(t.date);
+    const d   = new Date(t.date);
     const key = period === 'weekly'
       ? `Week ${getWeekNumber(d)}, ${d.getFullYear()}`
       : d.toLocaleDateString('en-IN', { month: 'long', year: 'numeric' });
@@ -2348,7 +2396,7 @@ function renderReport(period) {
 
   report.innerHTML = entries.map(([p, d]) => `
     <tr>
-      <td style="font-weight:600;">${p}</td>
+      <td style="font-weight:600;">${esc(p)}</td>
       <td style="color:#1D9E75;font-weight:700;">${fmt(d.revenue)}</td>
       <td style="color:#D85A30;font-weight:700;">${fmt(d.cost)}</td>
       <td style="color:#7c6af7;font-weight:700;">${fmt(d.profit)}</td>
@@ -2375,16 +2423,16 @@ function renderCategoryReport() {
     catMap[category].products.add(getRecordProductName(t));
   });
 
-  const tbody   = document.getElementById('cat-report-body');
-  const entries = Object.entries(catMap).sort((a,b)=>b[1].profit-a[1].profit);
+  const tbody        = document.getElementById('cat-report-body');
+  const entries      = Object.entries(catMap).sort((a,b)=>b[1].profit-a[1].profit);
   if (!entries.length) { tbody.innerHTML = '<tr><td colspan="6" class="empty">No sales data yet.</td></tr>'; return; }
 
-  const totalRevenue = entries.reduce((sum,[,d])=>sum+d.revenue,0);
-  tbody.innerHTML = entries.map(([cat,d]) => {
+  const totalRevenue = entries.reduce((sum,[,d])=>sum+d.revenue, 0);
+  tbody.innerHTML = entries.map(([cat, d]) => {
     const share = totalRevenue > 0 ? ((d.revenue/totalRevenue)*100).toFixed(1) : 0;
     return `
       <tr>
-        <td><span class="badge" style="background:rgba(124,106,247,0.12);color:#7c6af7;">${cat}</span></td>
+        <td><span class="badge" style="background:rgba(124,106,247,0.12);color:#7c6af7;">${esc(cat)}</span></td>
         <td>${d.products.size} products</td>
         <td style="color:#1D9E75;font-weight:700;">${fmt(d.revenue)}</td>
         <td style="color:#D85A30;font-weight:700;">${fmt(d.cost)}</td>
@@ -2392,7 +2440,7 @@ function renderCategoryReport() {
         <td>
           <div style="display:flex;align-items:center;gap:8px;">
             <div style="flex:1;background:var(--card-border);border-radius:4px;height:6px;">
-              <div style="width:${share}%;background:#1D9E75;border-radius:4px;height:6px;"></div>
+              <div style="width:${Number(share)}%;background:#1D9E75;border-radius:4px;height:6px;"></div>
             </div>
             <span style="font-size:12px;font-weight:600;color:var(--muted);min-width:36px;">${share}%</span>
           </div>
@@ -2423,7 +2471,7 @@ function renderBreakEven() {
 
     return `
       <tr>
-        <td style="font-weight:600;">${product.name}</td>
+        <td style="font-weight:600;">${esc(product.name)}</td>
         <td>${fmt(product.price - product.cost)} per unit</td>
         <td>${fmt(restockCost)}</td>
         <td style="font-weight:700;">${unitsNeeded === '—' ? '—' : `${unitsNeeded} units`}</td>
@@ -2464,11 +2512,20 @@ function exportCSV() {
     ['Date','Product','Qty Added','Cost Per Unit','Total Paid'],
     ...restockHistory.map(r=>[r.date,getRecordProductName(r),r.qty,r.cost,r.total])
   ];
-  const csv  = rows.map(r=>r.join(',')).join('\n');
-  const blob = new Blob([csv],{type:'text/csv'});
+  // FIX #45: Quote CSV fields that contain commas or quotes to produce valid CSV
+  const csvRows = rows.map(row =>
+    row.map(cell => {
+      const s = String(cell ?? '');
+      return (s.includes(',') || s.includes('"') || s.includes('\n'))
+        ? `"${s.replace(/"/g, '""')}"` : s;
+    }).join(',')
+  ).join('\n');
+  const blob = new Blob([csvRows], { type: 'text/csv;charset=utf-8;' });
   const url  = URL.createObjectURL(blob);
   const a    = document.createElement('a');
-  a.href = url; a.download = `shop-tracker-${new Date().toISOString().split('T')[0]}.csv`; a.click();
+  a.href = url;
+  a.download = `shop-tracker-${new Date().toISOString().split('T')[0]}.csv`;
+  a.click();
   URL.revokeObjectURL(url);
 }
 
@@ -2493,10 +2550,25 @@ function exportPDF() {
   const totalCost   = transactions.reduce((s,t)=>s+t.totalCost,0);
 
   doc.setFontSize(11); doc.setFont('helvetica','bold'); doc.setTextColor(...dark); doc.text('Summary',14,42);
-  doc.autoTable({ startY:46, head:[['Total Revenue','Total Cost','Gross Profit','Items Sold']], body:[[fmt(totalRev),fmt(totalCost),fmt(totalProfit),transactions.reduce((s,t)=>s+t.qty,0)]], headStyles:{fillColor:green,textColor:255,fontStyle:'bold'}, bodyStyles:{textColor:dark}, margin:{left:14,right:14} });
+  doc.autoTable({
+    startY:46,
+    head:[['Total Revenue','Total Cost','Gross Profit','Items Sold']],
+    body:[[fmt(totalRev),fmt(totalCost),fmt(totalProfit),transactions.reduce((s,t)=>s+t.qty,0)]],
+    headStyles:{fillColor:green,textColor:255,fontStyle:'bold'},
+    bodyStyles:{textColor:dark}, margin:{left:14,right:14}
+  });
 
-  doc.setFontSize(11); doc.setFont('helvetica','bold'); doc.setTextColor(...dark); doc.text('Sales Transactions',14,doc.lastAutoTable.finalY+14);
-  doc.autoTable({ startY:doc.lastAutoTable.finalY+18, head:[['Date','Product','Qty','Unit Price','Total','Profit']], body:transactions.map(tx=>[tx.date,getRecordProductName(tx),tx.qty,fmt(tx.price),fmt(tx.total),fmt(tx.profit)]), headStyles:{fillColor:green,textColor:255,fontStyle:'bold'}, bodyStyles:{textColor:dark}, alternateRowStyles:{fillColor:[245,245,245]}, margin:{left:14,right:14} });
+  doc.setFontSize(11); doc.setFont('helvetica','bold'); doc.setTextColor(...dark);
+  doc.text('Sales Transactions',14,doc.lastAutoTable.finalY+14);
+  doc.autoTable({
+    startY:doc.lastAutoTable.finalY+18,
+    head:[['Date','Product','Qty','Unit Price','Total','Profit']],
+    body:transactions.map(tx=>[tx.date,getRecordProductName(tx),tx.qty,fmt(tx.price),fmt(tx.total),fmt(tx.profit)]),
+    headStyles:{fillColor:green,textColor:255,fontStyle:'bold'},
+    bodyStyles:{textColor:dark},
+    alternateRowStyles:{fillColor:[245,245,245]},
+    margin:{left:14,right:14}
+  });
 
   const todayDate = new Date();
   const deadList  = products.filter(p => {
@@ -2506,21 +2578,35 @@ function exportPDF() {
   });
 
   if (deadList.length) {
-    doc.setFontSize(11); doc.setFont('helvetica','bold'); doc.setTextColor(...dark); doc.text('Dead Stock',14,doc.lastAutoTable.finalY+14);
-    doc.autoTable({ startY:doc.lastAutoTable.finalY+18, head:[['Product','Stock','Idle Value']], body:deadList.map(p=>[p.name,`${getCurrentStock(p)} units`,fmt(getCurrentStock(p)*p.cost)]), headStyles:{fillColor:[216,90,48],textColor:255,fontStyle:'bold'}, bodyStyles:{textColor:dark}, margin:{left:14,right:14} });
+    doc.setFontSize(11); doc.setFont('helvetica','bold'); doc.setTextColor(...dark);
+    doc.text('Dead Stock',14,doc.lastAutoTable.finalY+14);
+    doc.autoTable({
+      startY:doc.lastAutoTable.finalY+18,
+      head:[['Product','Stock','Idle Value']],
+      body:deadList.map(p=>[p.name,`${getCurrentStock(p)} units`,fmt(getCurrentStock(p)*p.cost)]),
+      headStyles:{fillColor:[216,90,48],textColor:255,fontStyle:'bold'},
+      bodyStyles:{textColor:dark}, margin:{left:14,right:14}
+    });
   }
 
-  doc.setFontSize(9); doc.setTextColor(150,150,150); doc.text('Generated by Shop Tracker',14,290);
+  doc.setFontSize(9); doc.setTextColor(150,150,150);
+  doc.text('Generated by Shop Tracker',14,290);
   doc.save(`shop-report-${today}.pdf`);
 }
 
 function backupData() {
   closeProfileMenu();
-  const data = { user: currentUser ? { id:currentUser.uid, name:currentUser.displayName, email:currentUser.email } : null, products, transactions, restockHistory, movementHistory, reviewedProducts, dailyGoal, currency, exportedAt: new Date().toISOString() };
-  const blob = new Blob([JSON.stringify(data,null,2)],{type:'application/json'});
+  const data = {
+    user: currentUser ? { id: currentUser.uid, name: currentUser.displayName, email: currentUser.email } : null,
+    products, transactions, restockHistory, movementHistory, reviewedProducts,
+    dailyGoal, currency, exportedAt: new Date().toISOString()
+  };
+  const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
   const url  = URL.createObjectURL(blob);
   const a    = document.createElement('a');
-  a.href = url; a.download = `shop-backup-${new Date().toISOString().split('T')[0]}.json`; a.click();
+  a.href = url;
+  a.download = `shop-backup-${new Date().toISOString().split('T')[0]}.json`;
+  a.click();
   URL.revokeObjectURL(url);
   toast('Backup created');
 }
@@ -2529,17 +2615,38 @@ function restoreData(event) {
   const file = event.target.files[0];
   if (!file) return;
   closeProfileMenu();
+
+  // FIX #46: Enforce backup file size limit (10 MB) to prevent DoS via huge JSON
+  if (file.size > 10 * 1024 * 1024) {
+    toast('Backup file too large (max 10 MB).', 'error');
+    event.target.value = '';
+    return;
+  }
+
   const reader = new FileReader();
   reader.onload = e => {
     try {
-      const data     = JSON.parse(e.target.result);
+      const data = JSON.parse(e.target.result);
+      // FIX #47: Basic shape validation before trusting the backup
+      if (!data || typeof data !== 'object' || !Array.isArray(data.products)) {
+        toast('Invalid backup file format.', 'error'); return;
+      }
       if (!confirm('This will replace all current data. Are you sure?')) return;
       const snapshot = createDataSnapshot();
-      applyDataSnapshot({ products: data.products||[], transactions: data.transactions||[], restockHistory: data.restockHistory||[], movementHistory: data.movementHistory||[], reviewedProducts: data.reviewedProducts||[], dailyGoal: parseFloat(data.dailyGoal)||0, currency: data.currency||'INR', skuCounter: (data.products||[]).length+1 });
+      applyDataSnapshot({
+        products:         data.products         || [],
+        transactions:     data.transactions     || [],
+        restockHistory:   data.restockHistory   || [],
+        movementHistory:  data.movementHistory  || [],
+        reviewedProducts: data.reviewedProducts || [],
+        dailyGoal:        parseFloat(data.dailyGoal) || 0,
+        currency:         data.currency         || 'INR',
+        skuCounter:       (data.products || []).length + 1
+      });
       addMovementEntry('Restored','Inventory','Restored inventory data from backup file.');
       queueUndo('Backup restored.', snapshot);
-    } catch { toast('Invalid backup file.','error'); }
-    finally  { event.target.value=''; }
+    } catch { toast('Invalid backup file.', 'error'); }
+    finally  { event.target.value = ''; }
   };
   reader.readAsText(file);
 }
@@ -2550,13 +2657,14 @@ function restoreData(event) {
 
 function toggleTheme() {
   const isLight = document.body.classList.toggle('light');
-  localStorage.setItem('theme', isLight ? 'light' : 'dark');
+  safeLocalStorageSet('theme', isLight ? 'light' : 'dark');
   updateThemeButton();
   syncProfileMenuTheme();
 }
 
 function loadTheme() {
-  if (localStorage.getItem('theme') === 'light') document.body.classList.add('light');
+  // FIX #48: Only apply 'light' class — don't trust arbitrary stored class names
+  if (safeLocalStorageGet('theme') === 'light') document.body.classList.add('light');
   syncProfileMenuTheme();
 }
 
@@ -2578,7 +2686,7 @@ function syncProfileMenuTheme() {
 }
 
 // ============================================================================
-// TOAST NOTIFICATIONS  ← IMPROVED: warning type + smooth stack
+// TOAST NOTIFICATIONS
 // ============================================================================
 
 function toast(message, type = 'success', action = null, duration = 2800) {
@@ -2595,30 +2703,48 @@ function toast(message, type = 'success', action = null, duration = 2800) {
   const t = document.createElement('div');
   t.id        = 'toast';
   t.className = `toast toast-${type}`;
-  t.innerHTML = `
-    <div class="toast-icon">${icons[type] || '✓'}</div>
-    <div class="toast-copy">
-      <div class="toast-label">${labels[type] || 'Notice'}</div>
-      <div class="toast-message">${message}</div>
-    </div>
-    ${action ? `<button type="button" class="toast-action">${action.label}</button>` : ''}
-    <div class="toast-progress"></div>
-  `;
-  document.body.appendChild(t);
 
-  const progress = t.querySelector('.toast-progress');
-  if (progress) progress.style.animationDuration = `${duration}ms`;
+  // FIX #49: Build toast via DOM — never innerHTML with message (user-controlled)
+  const iconEl    = document.createElement('div');
+  iconEl.className = 'toast-icon';
+  iconEl.textContent = icons[type] || '✓';
+
+  const copyEl    = document.createElement('div');
+  copyEl.className = 'toast-copy';
+
+  const labelEl   = document.createElement('div');
+  labelEl.className = 'toast-label';
+  labelEl.textContent = labels[type] || 'Notice';
+
+  const msgEl     = document.createElement('div');
+  msgEl.className = 'toast-message';
+  msgEl.textContent = message; // textContent — safe
+
+  copyEl.appendChild(labelEl);
+  copyEl.appendChild(msgEl);
+  t.appendChild(iconEl);
+  t.appendChild(copyEl);
+
+  if (action) {
+    const actionBtn = document.createElement('button');
+    actionBtn.type      = 'button';
+    actionBtn.className = 'toast-action';
+    actionBtn.textContent = action.label;
+    t.appendChild(actionBtn);
+    actionBtn.addEventListener('click', () => { clearTimeout(dismiss); t.remove(); action.onClick(); });
+  }
+
+  const progress = document.createElement('div');
+  progress.className = 'toast-progress';
+  progress.style.animationDuration = `${duration}ms`;
+  t.appendChild(progress);
+
+  document.body.appendChild(t);
 
   const dismiss = setTimeout(() => {
     t.classList.add('toast-exit');
     setTimeout(() => t.remove(), 320);
   }, duration);
-
-  if (action) {
-    t.querySelector('.toast-action')?.addEventListener('click', () => {
-      clearTimeout(dismiss); t.remove(); action.onClick();
-    });
-  }
 }
 
 // ============================================================================
@@ -2628,33 +2754,32 @@ function toast(message, type = 'success', action = null, duration = 2800) {
 function showConfirm(message, onYes) {
   const existing = document.getElementById('confirm-modal');
   if (existing) existing.remove();
- 
+
   const overlay = document.createElement('div');
   overlay.id = 'confirm-modal';
   overlay.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,0.6);display:flex;align-items:center;justify-content:center;z-index:9998;';
- 
+
   const box = document.createElement('div');
   box.style.cssText = 'background:var(--card-bg);border:1px solid var(--card-border);border-radius:16px;padding:28px 32px;max-width:400px;width:90%;text-align:center;';
- 
-  // ← SECURITY FIX: use textContent not innerHTML for the message
+
   const msg = document.createElement('div');
   msg.style.cssText = 'font-size:16px;font-weight:600;color:var(--text);margin-bottom:20px;';
-  msg.textContent = message;  // Safe
- 
+  msg.textContent = message; // textContent — safe
+
   const btnRow = document.createElement('div');
   btnRow.style.cssText = 'display:flex;gap:10px;justify-content:center;';
- 
+
   const cancelBtn = document.createElement('button');
   cancelBtn.style.cssText = 'padding:10px 24px;border-radius:8px;border:1px solid var(--card-border);background:transparent;color:var(--muted);font-size:14px;font-weight:600;cursor:pointer;';
   cancelBtn.textContent = 'Cancel';
   cancelBtn.onclick = () => overlay.remove();
- 
+
   const yesBtn = document.createElement('button');
   yesBtn.id = 'confirm-yes';
   yesBtn.style.cssText = 'padding:10px 24px;border-radius:8px;border:none;background:#D85A30;color:#fff;font-size:14px;font-weight:600;cursor:pointer;';
   yesBtn.textContent = 'Yes, delete';
   yesBtn.onclick = () => { overlay.remove(); onYes(); };
- 
+
   btnRow.appendChild(cancelBtn);
   btnRow.appendChild(yesBtn);
   box.appendChild(msg);
@@ -2683,7 +2808,7 @@ function clearAllData() {
 // ============================================================================
 
 window.addEventListener('load', () => {
-  showLoadingScreen(); // ← show immediately while Firebase warms up
+  showLoadingScreen();
   loadFeaturePanels();
   loadViewMode();
   loadTheme();
@@ -2691,10 +2816,9 @@ window.addEventListener('load', () => {
   syncProfileMenuTheme();
   applyViewMode();
   fetchExchangeRates();
-  initOfflineDetection(); // ← offline banner + save queue
-  initAuth(); // loading screen hidden inside completeLogin / initAuth
+  initOfflineDetection();
+  initAuth();
 
-  // SECURITY: Ensure pending changes are pushed to the cloud if the user switches apps or closes the tab
   window.addEventListener('visibilitychange', () => {
     if (document.visibilityState === 'hidden' && _saveDebounceTimer) {
       saveCurrentUserData(true);
@@ -2702,7 +2826,6 @@ window.addEventListener('load', () => {
   });
 });
 
-// ← IMPROVED: Escape closes CSV modal + confirm dialog too; Ctrl shortcuts added
 document.addEventListener('keydown', event => {
   if (event.key === 'Escape') {
     closeProfileMenu();
@@ -2730,7 +2853,6 @@ document.addEventListener('keydown', event => {
     if (overlay && overlay.style.display !== 'none') { handleAuthAction(); return; }
   }
 
-  // Ctrl/Cmd shortcuts — only when app shell is visible
   const appShell = document.getElementById('app-shell');
   if (!appShell || appShell.classList.contains('app-shell-hidden')) return;
   if (!event.ctrlKey && !event.metaKey) return;
@@ -2759,7 +2881,7 @@ if ('serviceWorker' in navigator) {
 }
 
 // ============================================================================
-// BULK CSV IMPORT MODULE  (unchanged — paste your existing csvReset etc. here)
+// BULK CSV IMPORT MODULE
 // ============================================================================
 
 const CSV_FIELDS = [
@@ -2834,8 +2956,13 @@ function csvReadFile(file) {
   if (!file.name.toLowerCase().endsWith('.csv') && file.type !== 'text/csv') {
     toast('Please upload a .csv file', 'error'); return;
   }
+  // FIX #50: Enforce max CSV size (5 MB) to prevent tab freeze
+  if (file.size > 5 * 1024 * 1024) {
+    toast('CSV file must be under 5 MB.', 'error'); return;
+  }
   const reader = new FileReader();
-  reader.onload = ev => csvLoadRawText(ev.target.result);
+  reader.onload  = ev => csvLoadRawText(ev.target.result);
+  reader.onerror = ()  => toast('Failed to read CSV file.', 'error');
   reader.readAsText(file);
 }
 
@@ -2843,6 +2970,11 @@ function csvPasteChanged() {
   const val = document.getElementById('csv-paste-input').value.trim();
   if (val.length > 10) {
     clearTimeout(csvState._pasteTimer);
+    // FIX #51: Enforce max paste size to prevent DoS
+    if (val.length > 500_000) {
+      toast('Pasted data is too large. Please use a file upload instead.', 'warning');
+      return;
+    }
     csvState._pasteTimer = setTimeout(() => csvLoadRawText(val), 380);
   } else {
     csvState.fileLoaded = false;
@@ -2878,11 +3010,15 @@ function csvParseText(text) {
 function csvLoadRawText(text) {
   const rows = csvParseText(text);
   if (rows.length < 2) { toast('CSV needs at least a header row and one data row', 'error'); return; }
-  csvState.rawRows = rows; csvState.headers = rows[0]; csvState.fileLoaded = true;
+  // FIX #52: Cap rows to prevent the UI from freezing on huge files
+  const MAX_ROWS = 2000;
+  const trimmed  = rows.slice(0, MAX_ROWS + 1);
+  const wasTrimmed = rows.length > MAX_ROWS + 1;
+  csvState.rawRows = trimmed; csvState.headers = trimmed[0]; csvState.fileLoaded = true;
   csvState.mapping = autoDetectMapping(csvState.headers);
-  const dataCount = rows.length - 1;
+  const dataCount  = trimmed.length - 1;
   document.getElementById('csv-footer-info').innerHTML =
-    `<strong>${dataCount} row${dataCount !== 1 ? 's' : ''}</strong> detected — review column mapping below.`;
+    `<strong>${dataCount} row${dataCount !== 1 ? 's' : ''}</strong> detected${wasTrimmed ? ` (first ${MAX_ROWS} rows only)` : ''} — review column mapping below.`;
   csvSetPhase('map'); csvBuildMapper(); csvSetNextEnabled(true);
 }
 
@@ -2915,17 +3051,17 @@ function autoDetectMapping(headers) {
 function csvBuildMapper() {
   const grid = document.getElementById('csv-mapper-grid');
   grid.innerHTML = '';
-  const headerOptions = csvState.headers.map((h,i) => `<option value="${i}">${h || `Column ${i+1}`}</option>`).join('');
+  const headerOptions = csvState.headers.map((h,i) => `<option value="${i}">${esc(h) || `Column ${i+1}`}</option>`).join('');
   CSV_FIELDS.forEach(field => {
     grid.insertAdjacentHTML('beforeend', `
       <div class="csv-mapper-col-label">
         <span class="${field.required ? 'csv-required-dot' : 'csv-optional-dot'}"></span>
-        ${field.label}${field.required ? ' *' : ''}
+        ${esc(field.label)}${field.required ? ' *' : ''}
       </div>
       <div class="csv-mapper-arrow">→</div>
-      <select class="csv-mapper-select" data-field="${field.key}"
-        onchange="csvUpdateMapping('${field.key}', parseInt(this.value))"
-        aria-label="Map ${field.label}">
+      <select class="csv-mapper-select" data-field="${esc(field.key)}"
+        onchange="csvUpdateMapping('${esc(field.key)}', parseInt(this.value))"
+        aria-label="Map ${esc(field.label)}">
         <option value="-1">— Skip —</option>${headerOptions}
       </select>
     `);
@@ -2953,31 +3089,39 @@ function csvParseAndValidateRows() {
       const colIdx = csvState.mapping[field.key] ?? -1;
       const raw = colIdx >= 0 ? (row[colIdx] || '').trim() : '';
       if (field.key === 'name') {
-        data.name = raw; if (!raw) errors.push(`Row ${rowIdx+2}: Product name is required`);
+        data.name = raw.slice(0, 200);
+        if (!raw) errors.push(`Row ${rowIdx+2}: Product name is required`);
       } else if (field.key === 'cost') {
         data.cost = parseFloat(raw);
         if (!raw) errors.push(`Row ${rowIdx+2}: Cost price is required`);
         else if (isNaN(data.cost) || data.cost <= 0) errors.push(`Row ${rowIdx+2}: Cost must be a positive number`);
+        else if (data.cost > 10_000_000) errors.push(`Row ${rowIdx+2}: Cost price is unrealistically large`);
       } else if (field.key === 'price') {
         data.price = parseFloat(raw);
         if (!raw) errors.push(`Row ${rowIdx+2}: Selling price is required`);
         else if (isNaN(data.price) || data.price <= 0) errors.push(`Row ${rowIdx+2}: Price must be a positive number`);
+        else if (data.price > 10_000_000) errors.push(`Row ${rowIdx+2}: Selling price is unrealistically large`);
       } else if (field.key === 'stock') {
         data.stock = parseInt(raw);
         if (!raw) errors.push(`Row ${rowIdx+2}: Stock quantity is required`);
         else if (isNaN(data.stock) || data.stock < 0) errors.push(`Row ${rowIdx+2}: Stock must be non-negative`);
+        else if (data.stock > 1_000_000) errors.push(`Row ${rowIdx+2}: Stock quantity is unrealistically large`);
       } else if (field.key === 'minStock') {
         data.minStock = raw ? parseInt(raw) : 5;
         if (raw && isNaN(data.minStock)) warnings.push(`Row ${rowIdx+2}: Min stock ignored, defaulting to 5`);
       } else if (field.key === 'expiryDate') {
         data.expiryDate = raw || '';
         if (raw && isNaN(new Date(raw).getTime())) warnings.push(`Row ${rowIdx+2}: Expiry date "${raw}" could not be parsed`);
-      } else { data[field.key] = raw || ''; }
+      } else {
+        data[field.key] = raw.slice(0, 200) || ''; // FIX #53: Cap field lengths in CSV import
+      }
     });
     if (!isNaN(data.cost) && !isNaN(data.price) && data.cost > 0 && data.price > 0 && data.cost >= data.price)
       errors.push(`Row ${rowIdx+2}: Cost must be less than selling price`);
-    data.category = data.category || 'Uncategorized'; data.brand = data.brand || '—';
-    data.variant = data.variant || '—'; data.batchNumber = data.batchNumber || '';
+    data.category    = (data.category    || 'Uncategorized').slice(0, 100);
+    data.brand       = (data.brand       || '—').slice(0, 100);
+    data.variant     = (data.variant     || '—').slice(0, 100);
+    data.batchNumber = (data.batchNumber || '').slice(0, 100);
     if (!data.minStock || isNaN(data.minStock)) data.minStock = 5;
     results.push({ data, errors, warnings, rowIdx });
   });
@@ -2995,16 +3139,17 @@ function csvBuildPreview() {
   document.getElementById('csv-validation-bar').innerHTML = `
     <span class="csv-val-chip ok">✓ ${okCount} valid</span>
     ${warnCount ? `<span class="csv-val-chip warn">⚠ ${warnCount} warnings</span>` : ''}
-    ${errCount  ? `<span class="csv-val-chip err">✕ ${errCount} errors</span>` : ''}
+    ${errCount  ? `<span class="csv-val-chip err">✕ ${errCount} errors</span>`  : ''}
     <span class="csv-val-detail">${results.length} total rows</span>
   `;
   const errorList = document.getElementById('csv-error-list');
   errorList.style.display = allErrors.length ? 'flex' : 'none';
-  errorList.innerHTML = allErrors.map(e => `<div class="csv-error-item">${e}</div>`).join('');
+  // FIX #54: esc() error messages (they contain row-level data)
+  errorList.innerHTML = allErrors.map(e => `<div class="csv-error-item">${esc(e)}</div>`).join('');
 
   const mappedFields = CSV_FIELDS.filter(f => (csvState.mapping[f.key] ?? -1) >= 0);
   document.getElementById('csv-preview-thead').innerHTML =
-    `<tr>${mappedFields.map(f=>`<th>${f.label}</th>`).join('')}<th>Status</th></tr>`;
+    `<tr>${mappedFields.map(f=>`<th>${esc(f.label)}</th>`).join('')}<th>Status</th></tr>`;
   document.getElementById('csv-preview-tbody').innerHTML = results.map(r => {
     const cls = r.errors.length ? 'csv-row-err' : r.warnings.length ? 'csv-row-warn' : 'csv-row-ok';
     const status = r.errors.length
@@ -3012,7 +3157,7 @@ function csvBuildPreview() {
       : r.warnings.length
       ? `<span style="color:#eab308;font-size:11px;font-weight:700;">⚠ Warning</span>`
       : `<span style="color:#1D9E75;font-size:11px;font-weight:700;">✓ OK</span>`;
-    return `<tr class="${cls}">${mappedFields.map(f=>`<td>${String(r.data[f.key]??'')}</td>`).join('')}<td>${status}</td></tr>`;
+    return `<tr class="${cls}">${mappedFields.map(f=>`<td>${esc(String(r.data[f.key]??''))}</td>`).join('')}<td>${status}</td></tr>`;
   }).join('');
 
   const nextBtn = document.getElementById('csv-next-btn');
@@ -3025,12 +3170,12 @@ function csvBuildPreview() {
 
 function csvSetPhase(phase) {
   csvState.phase = phase;
-  const pUpload = document.getElementById('csv-phase-upload');
-  const pMap = document.getElementById('csv-phase-map');
+  const pUpload  = document.getElementById('csv-phase-upload');
+  const pMap     = document.getElementById('csv-phase-map');
   const pPreview = document.getElementById('csv-phase-preview');
-  
-  if (pUpload) { pUpload.style.display = phase === 'upload' ? 'flex' : 'none'; pUpload.style.flexDirection = 'column'; pUpload.style.gap = '16px'; }
-  if (pMap) { pMap.style.display = phase === 'map' ? 'block' : 'none'; }
+
+  if (pUpload)  { pUpload.style.display  = phase === 'upload'  ? 'flex' : 'none'; pUpload.style.flexDirection  = 'column'; pUpload.style.gap  = '16px'; }
+  if (pMap)     { pMap.style.display     = phase === 'map'     ? 'block' : 'none'; }
   if (pPreview) { pPreview.style.display = phase === 'preview' ? 'flex' : 'none'; pPreview.style.flexDirection = 'column'; pPreview.style.gap = '14px'; }
 
   const phaseIdx = { upload:0, map:1, preview:2, done:3 }[phase] ?? 0;
@@ -3061,9 +3206,19 @@ function csvDoImport() {
   const validRows = csvState.parsed.filter(r => !r.errors.length);
   if (!validRows.length) { toast('No valid rows to import', 'error'); return; }
   const snapshot = createDataSnapshot();
-  let imported = 0;
+  let imported   = 0;
   validRows.forEach(({ data }) => {
-    const sku = data.sku || `SKU-${String(skuCounter).padStart(3,'0')}`;
+    // FIX #55: Don't trust auto-generated SKUs from import to be collision-free — re-check
+    let sku = (data.sku || '').slice(0, 50);
+    if (!sku) {
+      sku = `SKU-${String(skuCounter).padStart(3,'0')}`;
+      while (products.some(p => p.sku === sku)) {
+        skuCounter++;
+        sku = `SKU-${String(skuCounter).padStart(3,'0')}`;
+      }
+    }
+    // Silently skip duplicate names to maintain the duplicate-name invariant
+    if (products.some(p => p.name.toLowerCase() === data.name.toLowerCase())) return;
     products.push({
       id: nextProdId++, sku,
       name: data.name, brand: data.brand||'—', variant: data.variant||'—',
@@ -3073,6 +3228,7 @@ function csvDoImport() {
     });
     skuCounter++; imported++;
   });
+  if (imported === 0) { toast('All rows were duplicates — nothing imported.', 'warning'); return; }
   saveCurrentUserData();
   addMovementEntry('Bulk Import', 'Inventory', `Imported ${imported} product${imported!==1?'s':''} via CSV.`);
   render();
@@ -3081,12 +3237,24 @@ function csvDoImport() {
 }
 
 function showCsvSuccess(count) {
-  document.getElementById('csv-modal-body').innerHTML = `
-    <div class="csv-success-screen">
-      <div class="csv-success-icon">✓</div>
-      <div class="csv-success-title">${count} Product${count!==1?'s':''} Imported!</div>
-      <div class="csv-success-sub">Your inventory has been updated.</div>
-    </div>`;
+  const bodyEl = document.getElementById('csv-modal-body');
+  if (bodyEl) {
+    // FIX #56: Build success screen via DOM
+    bodyEl.innerHTML = '';
+    const screen = document.createElement('div');
+    screen.className = 'csv-success-screen';
+    const icon  = document.createElement('div');
+    icon.className = 'csv-success-icon';
+    icon.textContent = '✓';
+    const title = document.createElement('div');
+    title.className = 'csv-success-title';
+    title.textContent = `${count} Product${count!==1?'s':''} Imported!`;
+    const sub   = document.createElement('div');
+    sub.className = 'csv-success-sub';
+    sub.textContent = 'Your inventory has been updated.';
+    screen.appendChild(icon); screen.appendChild(title); screen.appendChild(sub);
+    bodyEl.appendChild(screen);
+  }
   document.getElementById('csv-modal-footer').innerHTML = `
     <div class="csv-footer-info"><strong>${count} product${count!==1?'s':''}</strong> added.</div>
     <div class="csv-footer-actions">
