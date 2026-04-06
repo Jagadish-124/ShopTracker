@@ -1919,7 +1919,7 @@ body.light .section-title {
   padding: 14px 16px 18px;
   border-radius: 18px;
   color: #fff;
-  z-index: 9999;
+  z-index: 100000;
   border: 1px solid rgba(255,255,255,0.14);
   box-shadow: var(--shadow-lg);
   overflow: hidden;

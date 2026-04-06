@@ -1666,7 +1666,7 @@ function sellProduct(id, manualQty = null, manualNote = null, manualPrice = null
   saveCurrentUserData();
   addMovementEntry('Sold', product.name, `Sold ${qty} units for ${fmt(total)}${note ? ` — note: ${note}` : ''}.`);
   render();
-  toast(`✓ Sold ${qty}× ${product.name} — profit ${fmt(profit)}`);
+  queueUndo(`Sold ${qty}× ${product.name} — profit ${fmt(profit)}`, snapshot, 'success');
   notifyImportantEvents();
 }
 
@@ -1872,7 +1872,6 @@ function confirmBulkSell() {
  
   closeBulkSell();
   queueUndo(`Bulk sale of ${successCount} product(s) recorded.`, snapshot);
-  toast(`✓ Recorded ${successCount} product${successCount !== 1 ? 's' : ''} in this tally.`);
 }
 
 function deleteTransaction(id) {
@@ -1961,7 +1960,7 @@ function restockProduct(id) {
   addMovementEntry('Restocked', product.name, `Added ${qty} units at ${fmt(cost)} each.`);
   render();
   notifyImportantEvents();
-  toast(`✓ Restocked ${qty} units of ${product.name}`);
+  queueUndo(`Restocked ${qty} units of ${product.name}`, snapshot, 'success');
 }
 
 
