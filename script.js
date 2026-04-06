@@ -30,6 +30,7 @@ let pendingUndoTimer = null;
 let notificationSettings = { enabled: false, lowStock: true, goal: true, dailySummary: true };
 let firestoreUnsub = null;
 let completeLoginInProgress = false; // ← guard against double-fire
+let cameraStream = null;             // ← NEW: for camera access
 let _saveDebounceTimer = null;       // ← debounce Firestore writes
 let _lastSyncedAt = 0;               // ← track last known server timestamp
 
@@ -1515,6 +1516,106 @@ function clearProductForm() {
   const preview = document.getElementById('image-preview');
   if (preview) preview.innerHTML = '🖼️';
 }
+
+// ── Camera Access ────────────────────────────────────────────────────────────
+
+async function openCamera() {
+  const modal = document.getElementById('camera-modal');
+  const video = document.getElementById('camera-feed');
+  const message = document.getElementById('camera-message');
+  const captureBtn = document.getElementById('capture-btn');
+
+  if (!modal || !video || !message || !captureBtn) return;
+
+  message.textContent = '';
+  captureBtn.disabled = true;
+  video.style.display = 'block'; // Show video feed
+
+  modal.style.display = 'flex';
+  requestAnimationFrame(() => modal.classList.add('open'));
+
+  try {
+    // Request camera access, preferring the environment (rear) camera
+    const stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: 'environment' } });
+    cameraStream = stream;
+    video.srcObject = stream;
+    video.play();
+    captureBtn.disabled = false;
+    message.textContent = 'Camera active. Click Capture to take photo.';
+    message.className = 'auth-message info';
+  } catch (err) {
+    console.error('Error accessing camera:', err);
+    video.style.display = 'none'; // Hide video feed if camera fails
+    if (err.name === 'NotAllowedError' || err.name === 'PermissionDeniedError') {
+      message.textContent = 'Camera access denied. Please allow camera permissions in your browser settings.';
+      message.className = 'auth-message error';
+    } else if (err.name === 'NotFoundError' || err.name === 'DevicesNotFoundError') {
+      message.textContent = 'No camera found on this device.';
+      message.className = 'auth-message error';
+    } else {
+      message.textContent = 'Could not access camera. Please try again.';
+      message.className = 'auth-message error';
+    }
+    captureBtn.disabled = true;
+  }
+}
+
+function captureImage() {
+  const video = document.getElementById('camera-feed');
+  const canvas = document.getElementById('camera-canvas');
+  const preview = document.getElementById('image-preview');
+  const hidden = document.getElementById('prod-image-base64');
+  const urlInput = document.getElementById('prod-image-url');
+  const fileInput = document.getElementById('prod-image');
+
+  if (!video || !canvas || !preview || !hidden) return;
+
+  const context = canvas.getContext('2d');
+  const MAX_WIDTH = 400; // Max width for captured image to keep data size reasonable
+  const ratio = video.videoWidth / video.videoHeight;
+  let width = MAX_WIDTH;
+  let height = MAX_WIDTH / ratio;
+
+  if (video.videoHeight > video.videoWidth) { // Adjust for portrait orientation
+    height = MAX_WIDTH;
+    width = MAX_WIDTH * ratio;
+  }
+
+  canvas.width = width;
+  canvas.height = height;
+  context.drawImage(video, 0, 0, width, height);
+
+  const base64 = canvas.toDataURL('image/jpeg', 0.8); // Convert to JPEG with 80% quality
+
+  hidden.value = base64; // Update the hidden input with the Base64 image
+  if (urlInput) urlInput.value = ''; // Clear URL input
+  if (fileInput) fileInput.value = ''; // Clear file input
+
+  const img = document.createElement('img'); // Update the visual preview
+  img.src = base64;
+  img.style.cssText = 'width:100%;height:100%;object-fit:cover;';
+  preview.innerHTML = '';
+  preview.appendChild(img);
+
+  closeCameraModal();
+  toast('Image captured successfully!', 'success');
+}
+
+function closeCameraModal() {
+  const modal = document.getElementById('camera-modal');
+  const video = document.getElementById('camera-feed');
+  if (!modal) return;
+
+  if (cameraStream) {
+    cameraStream.getTracks().forEach(track => track.stop()); // Stop all tracks to turn off camera
+    cameraStream = null;
+  }
+  if (video) video.srcObject = null; // Disconnect video element from stream
+
+  modal.classList.remove('open');
+  setTimeout(() => { modal.style.display = 'none'; }, 280);
+}
+
 function saveProducts() { saveCurrentUserData(); }
 
 function renderRestockAlert() {

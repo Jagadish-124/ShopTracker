@@ -357,6 +357,7 @@
             <div style="display: flex; gap: 10px; align-items: center;">
               <div id="image-preview" class="form-image-preview">🖼️</div>
               <input type="file" id="prod-image" accept="image/*" onchange="handleImageUpload(this)" style="font-size: 11px; flex: 1;" />
+              <button type="button" class="csv-btn-secondary" onclick="openCamera()" style="height:36px; padding:0 12px; font-size:12px; white-space:nowrap;">📸 Camera</button>
             </div>
             <input type="text" id="prod-image-url" placeholder="Or paste image URL..." oninput="handleImageUrl(this.value)" 
               style="min-height:36px; font-size:12px; padding:0 10px; border-radius:8px; border:1px solid var(--card-border); background:var(--input-bg); color:var(--text); outline:none;" />
@@ -893,6 +894,22 @@
           <button class="csv-btn-secondary" onclick="closeBulkSell()">Cancel</button>
           <button class="csv-btn-primary" id="bulk-record-btn" onclick="confirmBulkSell()" disabled>Record All Entries</button>
         </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ====================================================
+       CAMERA MODAL
+       ==================================================== -->
+  <div id="camera-modal" class="delete-acct-backdrop" style="display:none;" role="dialog" aria-modal="true" aria-labelledby="camera-title">
+    <div class="delete-acct-card" style="width: min(100%, 500px); padding: 24px;">
+      <h2 id="camera-title" class="delete-acct-title" style="margin-bottom: 16px;">Capture Product Image</h2>
+      <video id="camera-feed" autoplay playsinline style="width:100%; height:auto; border-radius:12px; background:var(--input-bg); margin-bottom:16px;"></video>
+      <canvas id="camera-canvas" style="display:none;"></canvas>
+      <div id="camera-message" class="auth-message" style="margin-bottom:16px;"></div>
+      <div class="delete-acct-actions">
+        <button type="button" class="delete-acct-cancel" onclick="closeCameraModal()">Cancel</button>
+        <button type="button" class="csv-btn-primary" id="capture-btn" onclick="captureImage()">📸 Capture</button>
       </div>
     </div>
   </div>
