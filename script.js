@@ -1192,16 +1192,24 @@ function applyDataSnapshot(snapshot) {
 }
 
 function queueUndo(message, snapshot, type = 'info') {
-  if (pendingUndoTimer) { clearTimeout(pendingUndoTimer); pendingUndoTimer = null; }
+  if (pendingUndoTimer) {
+    clearTimeout(pendingUndoTimer);
+    pendingUndoTimer = null;
+  }
+ 
   toast(message, type, {
     label: 'Undo',
     onClick: () => {
-      if (pendingUndoTimer) { clearTimeout(pendingUndoTimer); pendingUndoTimer = null; }
-      applyDataSnapshot(snapshot);
-      toast('Last action undone.');
+      if (pendingUndoTimer) {
+        clearTimeout(pendingUndoTimer);
+        pendingUndoTimer = null;
+      }
+      applyDataSnapshot(snapshot); // restores transactions, products, stock — everything
+      toast('Action undone — all values restored.', 'success');
     }
-  }, 7000);
-  pendingUndoTimer = setTimeout(() => { pendingUndoTimer = null; }, 7000);
+  }, 12000); // 12 seconds to give user time to react
+
+  pendingUndoTimer = setTimeout(() => { pendingUndoTimer = null; }, 12000);
 }
 
 // ============================================================================
@@ -1874,13 +1882,24 @@ function deleteTransaction(id) {
   if (!tx) return;
   const snapshot = createDataSnapshot();
   const product = findProductByRecord(tx);
-  if (product) product.stock += tx.qty;  // ← THE FIX: restore stock
+  if (product) {
+    product.stock += tx.qty;
+  }
   transactions = transactions.filter(t => t.id !== id);
   saveCurrentUserData();
-  addMovementEntry('Sale Deleted', getRecordProductName(tx), `Removed sale of ${tx.qty} units and restored stock.`);
+  addMovementEntry(
+    'Sale Deleted',
+    getRecordProductName(tx),
+    `Removed sale of ${tx.qty} unit${tx.qty !== 1 ? 's' : ''} — stock restored. Revenue −${fmt(tx.total)}.`
+  );
   render();
-  queueUndo(`Sale deleted for ${getRecordProductName(tx)}.`, snapshot);
+  queueUndo(
+    `Sale deleted — ${tx.qty}× ${getRecordProductName(tx)} (${fmt(tx.total)} revenue removed)`,
+    snapshot,
+    'info'
+  );
 }
+ 
 
 function renderTransactions() {
   const tbody    = document.getElementById('txn-body');
