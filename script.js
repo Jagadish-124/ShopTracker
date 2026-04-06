@@ -249,6 +249,7 @@ function saveCurrentUserData(immediate = false) {
           ? 'Cloud storage quota exceeded. Changes saved locally only.' 
           : 'Cloud sync failed. Changes are saved locally.';
         toast(msg, 'warning', null, 6000);
+        if (!pendingUndoTimer) toast(msg, 'warning', null, 6000); // Prevent overwriting undo toast
 
         if (!_isOnline) updateOfflineBanner(false);
       });
@@ -277,6 +278,7 @@ function saveCurrentUserData(immediate = false) {
           ? 'Cloud storage quota reached. Saving locally...' 
           : 'Sync error. Changes saved locally.';
         toast(msg, 'warning', null, 5000);
+        if (!pendingUndoTimer) toast(msg, 'warning', null, 5000); // Prevent overwriting undo toast
       }
       resolve();
     }, 800);
