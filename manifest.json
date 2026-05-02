@@ -4,8 +4,8 @@
     "description": "Smart shop inventory and sales tracker",
     "start_url": "./index.html",
     "display": "standalone",
-    "background_color": "#0f1117",
-    "theme_color": "#1D9E75",
+    "background_color": "#09090b",
+    "theme_color": "#3B82F6",
     "orientation": "portrait-primary",
     "icons": [
       {

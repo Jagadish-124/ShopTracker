@@ -93,8 +93,8 @@ function showLoadingScreen() {
   const logoWrap = document.createElement('div');
   logoWrap.className = 'app-loader-logo';
   logoWrap.innerHTML = `<svg width="44" height="44" viewBox="0 0 44 44" fill="none">
-    <rect width="44" height="44" rx="14" fill="rgba(29,158,117,0.15)" stroke="rgba(29,158,117,0.4)" stroke-width="1.5"/>
-    <path d="M12 22h6l4-8 4 16 4-8h6" stroke="#1D9E75" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"/>
+    <rect width="44" height="44" rx="14" fill="rgba(59, 130, 246, 0.15)" stroke="rgba(59, 130, 246, 0.4)" stroke-width="1.5"/>
+    <path d="M12 22h6l4-8 4 16 4-8h6" stroke="#3B82F6" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"/>
   </svg>`;
 
   const title = document.createElement('div');
@@ -116,7 +116,7 @@ function showLoadingScreen() {
     .app-loader-title{font-family:'Space Grotesk',sans-serif;font-size:22px;font-weight:800;
       color:#f0f0f0;letter-spacing:-0.03em;}
     .app-loader-dots{display:flex;gap:6px;margin-top:4px;}
-    .app-loader-dots span{width:7px;height:7px;border-radius:50%;background:#1D9E75;
+    .app-loader-dots span{width:7px;height:7px;border-radius:50%;background:#3B82F6;
       animation:loaderDot 1.2s ease-in-out infinite;}
     .app-loader-dots span:nth-child(2){animation-delay:0.2s;}
     .app-loader-dots span:nth-child(3){animation-delay:0.4s;}
@@ -1237,8 +1237,8 @@ function queueUndo(message, snapshot, type = 'info') {
 function getTrend(current, previous) {
   if (previous === 0) return { arrow: '', pct: '', color: 'var(--muted)' };
   const pct = (((current - previous) / previous) * 100).toFixed(1);
-  if (pct > 0) return { arrow: '↑', pct: pct + '%', color: '#1D9E75' };
-  if (pct < 0) return { arrow: '↓', pct: Math.abs(pct) + '%', color: '#D85A30' };
+  if (pct > 0) return { arrow: '↑', pct: pct + '%', color: '#3B82F6' };
+  if (pct < 0) return { arrow: '↓', pct: Math.abs(pct) + '%', color: '#EF4444' };
   return { arrow: '→', pct: '0%', color: '#6b7280' };
 }
 
@@ -1300,7 +1300,7 @@ function renderDashboard() {
           const lastLog  = u.lastLogin  ? new Date(getMillis(u.lastLogin)).toLocaleString()  : 'Never';
           const joined   = u.createdAt  ? new Date(getMillis(u.createdAt)).toLocaleDateString() : '—';
           const isDeleted = u.status === 'deleted';
-          const rowStyle = isDeleted ? 'opacity:0.6;font-style:italic;background:rgba(216,90,48,0.02);' : '';
+          const rowStyle = isDeleted ? 'opacity:0.6;font-style:italic;background:rgba(239, 68, 68, 0.02);' : '';
           return `
             <tr style="${rowStyle}">
               <td style="font-weight:600;">${esc(u.name) || 'Anonymous'} ${isDeleted ? '<span class="badge danger" style="font-size:9px;margin-left:5px;padding:2px 6px;">Deleted</span>' : ''}</td>
@@ -1347,8 +1347,8 @@ function renderDashboard() {
     data: {
       labels,
       datasets: [
-        { label:'Revenue', data:revenueByDay, backgroundColor:'rgba(29,158,117,0.7)', borderRadius:6, borderSkipped:false },
-        { label:'Profit',  data:profitByDay,  backgroundColor:'rgba(124,106,247,0.7)', borderRadius:6, borderSkipped:false }
+        { label:'Revenue', data:revenueByDay, backgroundColor:'rgba(59, 130, 246, 0.7)', borderRadius:6, borderSkipped:false },
+        { label:'Profit',  data:profitByDay,  backgroundColor:'rgba(99, 102, 241, 0.7)', borderRadius:6, borderSkipped:false }
       ]
     },
     options: {
@@ -1369,7 +1369,7 @@ function renderDashboard() {
   });
 
   const entries = Object.values(revByProd);
-  const colors  = ['#1D9E75','#7c6af7','#D85A30','#eab308','#378ADD','#e879a0','#14b8a6','#f97316'];
+  const colors  = ['#3B82F6','#6366F1','#EF4444','#F59E0B','#378ADD','#e879a0','#14b8a6','#f97316'];
   const legend  = document.getElementById('donut-legend');
 
   if (!entries.length) { if (legend) legend.innerHTML = '<span style="color:#6b7280;font-size:13px;">No sales yet</span>'; return; }
@@ -1717,7 +1717,7 @@ function renderProducts() {
           <div style="font-size:11px;color:var(--muted);margin-top:4px;">Batch: ${esc(p.batchNumber) || '—'}</div>
           <div style="margin-top:6px;">${expiryMarkup}</div>
         </td>
-        <td><span class="badge" style="background:rgba(124,106,247,0.12);color:#7c6af7;">${esc(p.category)||'Uncategorized'}</span></td>
+        <td><span class="badge" style="background:rgba(99, 102, 241, 0.12);color:#6366F1;">${esc(p.category)||'Uncategorized'}</span></td>
         <td style="color:var(--muted);font-size:13px;">${esc(p.brand)||'—'}</td>
         <td style="color:var(--muted);font-size:13px;">${esc(p.variant)||'—'}</td>
         <td>${fmt(p.cost)}</td>
@@ -2048,8 +2048,8 @@ function renderTransactions() {
       </td>
       <td>${esc(String(t.qty))}</td>
       <td>${fmt(t.price)}</td>
-      <td style="color:#1D9E75;font-weight:700;">+${fmt(t.total)}</td>
-      <td style="color:#7c6af7;font-weight:700;">+${fmt(t.profit)}</td>
+      <td style="color:#3B82F6;font-weight:700;">+${fmt(t.total)}</td>
+      <td style="color:#6366F1;font-weight:700;">+${fmt(t.profit)}</td>
       <td><button onclick="deleteTransaction(${Number(t.id)})">✕</button></td>
     </tr>
   `).join('');
@@ -2166,7 +2166,7 @@ function renderDeadStock() {
       </td>
       <td><span class="badge danger">${p.daysSince === null ? 'Never sold' : `${p.daysSince} days ago`}</span></td>
       <td>${p.currentStock} units</td>
-      <td style="color:#eab308;font-weight:700;">${fmt(p.idleValue)}</td>
+      <td style="color:#F59E0B;font-weight:700;">${fmt(p.idleValue)}</td>
       <td><button class="reviewed-btn" onclick="markReviewed(${Number(p.id)})">✓ Mark reviewed</button></td>
     </tr>
   `).join('');
@@ -2199,7 +2199,7 @@ function renderSmartInsights() {
   marginEl.innerHTML = '';
   if (!lowMargin.length) {
     const s = document.createElement('span');
-    s.style.cssText = 'color:#1D9E75;font-size:13px;';
+    s.style.cssText = 'color:#3B82F6;font-size:13px;';
     s.textContent = 'All products have healthy margins.';
     marginEl.appendChild(s);
   } else {
@@ -2245,11 +2245,11 @@ function renderGoal() {
   }
 
   bar.style.width      = pct + '%';
-  bar.style.background = pct >= 100 ? '#1D9E75' : pct >= 50 ? '#eab308' : '#D85A30';
+  bar.style.background = pct >= 100 ? '#3B82F6' : pct >= 50 ? '#F59E0B' : '#EF4444';
 
   if (pct >= 100) {
     label.textContent = `🎉 Goal reached! ${fmt(todayProfit)} profit today`;
-    label.style.color = '#1D9E75';
+    label.style.color = '#3B82F6';
   } else {
     label.textContent = `${fmt(todayProfit)} of ${fmt(dailyGoal)} — ${fmt(remaining)} to go (${pct}%)`;
     label.style.color = 'var(--muted)';
@@ -2306,9 +2306,9 @@ function renderDateStats() {
     statsEl.style.display = hasFilter ? 'flex' : 'none';
     if (hasFilter) {
       statsEl.innerHTML = `
-        <div class="date-stat-card"><div class="date-stat-label">Revenue</div><div class="date-stat-value" style="color:#1D9E75;">${fmt(rev)}</div></div>
-        <div class="date-stat-card"><div class="date-stat-label">Cost</div><div class="date-stat-value" style="color:#D85A30;">${fmt(cost)}</div></div>
-        <div class="date-stat-card"><div class="date-stat-label">Profit</div><div class="date-stat-value" style="color:#7c6af7;">${fmt(profit)}</div></div>
+        <div class="date-stat-card"><div class="date-stat-label">Revenue</div><div class="date-stat-value" style="color:#3B82F6;">${fmt(rev)}</div></div>
+        <div class="date-stat-card"><div class="date-stat-label">Cost</div><div class="date-stat-value" style="color:#EF4444;">${fmt(cost)}</div></div>
+        <div class="date-stat-card"><div class="date-stat-label">Profit</div><div class="date-stat-value" style="color:#6366F1;">${fmt(profit)}</div></div>
         <div class="date-stat-card"><div class="date-stat-label">Items Sold</div><div class="date-stat-value">${items}</div></div>
       `;
     }
@@ -2397,9 +2397,9 @@ function renderReport(period) {
   report.innerHTML = entries.map(([p, d]) => `
     <tr>
       <td style="font-weight:600;">${esc(p)}</td>
-      <td style="color:#1D9E75;font-weight:700;">${fmt(d.revenue)}</td>
-      <td style="color:#D85A30;font-weight:700;">${fmt(d.cost)}</td>
-      <td style="color:#7c6af7;font-weight:700;">${fmt(d.profit)}</td>
+      <td style="color:#3B82F6;font-weight:700;">${fmt(d.revenue)}</td>
+      <td style="color:#EF4444;font-weight:700;">${fmt(d.cost)}</td>
+      <td style="color:#6366F1;font-weight:700;">${fmt(d.profit)}</td>
       <td>${d.items}</td>
     </tr>
   `).join('');
@@ -2432,15 +2432,15 @@ function renderCategoryReport() {
     const share = totalRevenue > 0 ? ((d.revenue/totalRevenue)*100).toFixed(1) : 0;
     return `
       <tr>
-        <td><span class="badge" style="background:rgba(124,106,247,0.12);color:#7c6af7;">${esc(cat)}</span></td>
+        <td><span class="badge" style="background:rgba(99, 102, 241, 0.12);color:#6366F1;">${esc(cat)}</span></td>
         <td>${d.products.size} products</td>
-        <td style="color:#1D9E75;font-weight:700;">${fmt(d.revenue)}</td>
-        <td style="color:#D85A30;font-weight:700;">${fmt(d.cost)}</td>
-        <td style="color:#7c6af7;font-weight:700;">${fmt(d.profit)}</td>
+        <td style="color:#3B82F6;font-weight:700;">${fmt(d.revenue)}</td>
+        <td style="color:#EF4444;font-weight:700;">${fmt(d.cost)}</td>
+        <td style="color:#6366F1;font-weight:700;">${fmt(d.profit)}</td>
         <td>
           <div style="display:flex;align-items:center;gap:8px;">
             <div style="flex:1;background:var(--card-border);border-radius:4px;height:6px;">
-              <div style="width:${Number(share)}%;background:#1D9E75;border-radius:4px;height:6px;"></div>
+              <div style="width:${Number(share)}%;background:#3B82F6;border-radius:4px;height:6px;"></div>
             </div>
             <span style="font-size:12px;font-weight:600;color:var(--muted);min-width:36px;">${share}%</span>
           </div>
@@ -2490,10 +2490,10 @@ function renderBreakEven() {
     overallEl.style.color = 'var(--muted)';
   } else if (totalProfitToday >= totalRestockToday) {
     overallEl.textContent = `✓ Break-even reached — ${fmt(totalProfitToday - totalRestockToday)} surplus today`;
-    overallEl.style.color = '#1D9E75';
+    overallEl.style.color = '#3B82F6';
   } else {
     overallEl.textContent = `Need ${fmt(totalRestockToday - totalProfitToday)} more profit to break even today`;
-    overallEl.style.color = '#D85A30';
+    overallEl.style.color = '#EF4444';
   }
 }
 
@@ -2776,7 +2776,7 @@ function showConfirm(message, onYes) {
 
   const yesBtn = document.createElement('button');
   yesBtn.id = 'confirm-yes';
-  yesBtn.style.cssText = 'padding:10px 24px;border-radius:8px;border:none;background:#D85A30;color:#fff;font-size:14px;font-weight:600;cursor:pointer;';
+  yesBtn.style.cssText = 'padding:10px 24px;border-radius:8px;border:none;background:#EF4444;color:#fff;font-size:14px;font-weight:600;cursor:pointer;';
   yesBtn.textContent = 'Yes, delete';
   yesBtn.onclick = () => { overlay.remove(); onYes(); };
 
@@ -3153,10 +3153,10 @@ function csvBuildPreview() {
   document.getElementById('csv-preview-tbody').innerHTML = results.map(r => {
     const cls = r.errors.length ? 'csv-row-err' : r.warnings.length ? 'csv-row-warn' : 'csv-row-ok';
     const status = r.errors.length
-      ? `<span style="color:#D85A30;font-size:11px;font-weight:700;">✕ Error</span>`
+      ? `<span style="color:#EF4444;font-size:11px;font-weight:700;">✕ Error</span>`
       : r.warnings.length
-      ? `<span style="color:#eab308;font-size:11px;font-weight:700;">⚠ Warning</span>`
-      : `<span style="color:#1D9E75;font-size:11px;font-weight:700;">✓ OK</span>`;
+      ? `<span style="color:#F59E0B;font-size:11px;font-weight:700;">⚠ Warning</span>`
+      : `<span style="color:#3B82F6;font-size:11px;font-weight:700;">✓ OK</span>`;
     return `<tr class="${cls}">${mappedFields.map(f=>`<td>${esc(String(r.data[f.key]??''))}</td>`).join('')}<td>${status}</td></tr>`;
   }).join('');
 
@@ -3165,7 +3165,7 @@ function csvBuildPreview() {
   nextBtn.disabled    = okCount === 0;
   document.getElementById('csv-footer-info').innerHTML =
     `<strong>${okCount}</strong> product${okCount!==1?'s':''} ready to import` +
-    (errCount ? ` — <span style="color:#D85A30;">${errCount} row${errCount!==1?'s':''} will be skipped</span>` : '');
+    (errCount ? ` — <span style="color:#EF4444;">${errCount} row${errCount!==1?'s':''} will be skipped</span>` : '');
 }
 
 function csvSetPhase(phase) {

@@ -3,14 +3,14 @@
 <head>
   <meta charset="UTF-8" />
   <link rel="manifest" href="manifest.json" />
-  <meta name="theme-color" content="#1D9E75" />
+  <meta name="theme-color" content="#3B82F6" />
   <meta name="mobile-web-app-capable" content="yes" />
   <meta name="apple-mobile-web-app-capable" content="yes" />
   <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
   <meta name="apple-mobile-web-app-title" content="Shop Tracker" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
   <title>Shop Tracker</title>
-  <link rel="icon" href="favicon.ico" type="image/x-icon" />
+  <link rel="icon" href="favicon.png" type="image/png" />
   <link rel="apple-touch-icon" href="icon-192.png" />
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
@@ -84,7 +84,7 @@
         We sent a verification link to your email. Click it to activate your account and access your dashboard.
       </p>
       <div class="auth-form" style="gap:10px;">
-        <button onclick="checkEmailVerified()" style="background:linear-gradient(135deg,var(--green),var(--green-dark));color:#fff;border:none;height:44px;border-radius:10px;font-size:14px;font-weight:700;cursor:pointer;box-shadow:0 8px 24px rgba(29,158,117,0.3);">
+        <button onclick="checkEmailVerified()" style="background:linear-gradient(135deg,var(--green),var(--green-dark));color:#fff;border:none;height:44px;border-radius:10px;font-size:14px;font-weight:700;cursor:pointer;box-shadow:0 8px 24px rgba(59, 130, 246, 0.3);">
           ✓ I've verified my email
         </button>
         <button onclick="resendVerificationEmail()" class="auth-secondary-btn" style="height:44px;border-radius:10px;font-size:13px;">
@@ -109,7 +109,7 @@
     <div class="page-header">
       <div class="page-brand">
         <h1>Shop <span>Tracker</span></h1>
-        <span style="font-size:12px;color:#1D9E75;font-weight:700;letter-spacing:0.02em;">live stock manager</span>
+        <span style="font-size:12px;color:#3B82F6;font-weight:700;letter-spacing:0.02em;">live stock manager</span>
       </div>
       <div class="page-actions">
         <div class="page-actions-row">
@@ -120,8 +120,8 @@
             <option value="GBP">£ GBP</option>
             <option value="JPY">¥ JPY</option>
           </select>
-          <button onclick="backupData()" class="export-btn" style="border-color:rgba(234,179,8,0.4);color:#eab308;" aria-label="Backup data">💾 Backup</button>
-          <label class="export-btn" style="border-color:rgba(234,179,8,0.4);color:#eab308;cursor:pointer;" aria-label="Restore data">
+          <button onclick="backupData()" class="export-btn" style="border-color:rgba(245, 158, 11, 0.4);color:#F59E0B;" aria-label="Backup data">💾 Backup</button>
+          <label class="export-btn" style="border-color:rgba(245, 158, 11, 0.4);color:#F59E0B;cursor:pointer;" aria-label="Restore data">
             📂 Restore
             <input type="file" accept=".json" onchange="restoreData(event)" style="display:none;" />
           </label>
@@ -162,7 +162,7 @@
             </button>
             <div class="profile-dropdown-divider"></div>
             <button type="button" class="profile-dropdown-item danger" id="delete-account-btn" onclick="openDeleteAccountModal()">
-              <span class="profile-dropdown-icon" style="background:rgba(216,90,48,0.15);">🗑</span>
+              <span class="profile-dropdown-icon" style="background:rgba(239, 68, 68, 0.15);">🗑</span>
               <span>Delete account</span>
             </button>
           </div>
@@ -251,9 +251,9 @@
         <p>Gross Profit</p>
         <h2 id="net-profit">₹0</h2>
       </div>
-      <div class="card" style="border-color:rgba(124,106,247,0.3);">
+      <div class="card" style="border-color:rgba(99, 102, 241, 0.3);">
         <p>Sales Profit</p>
-        <h2 id="total-profit" style="color:#7c6af7;">₹0</h2>
+        <h2 id="total-profit" style="color:#6366F1;">₹0</h2>
       </div>
     </div>
 
@@ -261,7 +261,7 @@
     <div class="insights-grid" data-view="home">
       <div class="insight-card">
         <div class="insight-header">
-          <span class="insight-icon" style="background:rgba(29,158,117,0.12);">📊</span>
+          <span class="insight-icon" style="background:rgba(59, 130, 246, 0.12);">📊</span>
           <span class="insight-title">Today's Summary</span>
         </div>
         <div class="insight-stats">
@@ -281,7 +281,7 @@
       </div>
       <div class="insight-card">
         <div class="insight-header">
-          <span class="insight-icon" style="background:rgba(234,179,8,0.12);">🏆</span>
+          <span class="insight-icon" style="background:rgba(245, 158, 11, 0.12);">🏆</span>
           <span class="insight-title">Best Selling Day</span>
         </div>
         <div id="best-day" style="font-size:15px;font-weight:700;color:var(--text);margin-top:12px;">
@@ -291,11 +291,11 @@
       </div>
       <div class="insight-card">
         <div class="insight-header">
-          <span class="insight-icon" style="background:rgba(216,90,48,0.12);">⚠️</span>
+          <span class="insight-icon" style="background:rgba(239, 68, 68, 0.12);">⚠️</span>
           <span class="insight-title">Low Margin Products</span>
         </div>
         <div id="margin-warnings" style="margin-top:12px;display:flex;flex-wrap:wrap;gap:8px;">
-          <span style="color:#1D9E75;font-size:13px;">All products have healthy margins.</span>
+          <span style="color:#3B82F6;font-size:13px;">All products have healthy margins.</span>
         </div>
         <div style="font-size:12px;color:var(--muted);margin-top:8px;">Products with margin below 10%</div>
       </div>
@@ -415,7 +415,7 @@
     <!-- Sales Transactions — home only -->
     <div class="section-title" data-view="home">
       Sales Transactions
-      <span id="txn-count-badge" class="dead-count-badge" style="background:rgba(124,106,247,0.2);color:#7c6af7;display:none;">0</span>
+      <span id="txn-count-badge" class="dead-count-badge" style="background:rgba(99, 102, 241, 0.2);color:#6366F1;display:none;">0</span>
     </div>
     <!-- Date filter lives inside home view too -->
     <div class="date-filter-bar" data-view="home">
@@ -475,35 +475,35 @@
       <div class="dashboard-grid">
         <div class="kpi-grid">
           <div class="kpi-card">
-            <div class="kpi-icon" style="background:rgba(29,158,117,0.12);">📦</div>
+            <div class="kpi-icon" style="background:rgba(59, 130, 246, 0.12);">📦</div>
             <div>
               <div class="kpi-label">Items Sold Today</div>
               <div class="kpi-value" id="kpi-sold">0</div>
             </div>
           </div>
           <div class="kpi-card">
-            <div class="kpi-icon" style="background:rgba(124,106,247,0.12);">🏆</div>
+            <div class="kpi-icon" style="background:rgba(99, 102, 241, 0.12);">🏆</div>
             <div>
               <div class="kpi-label">Top Product</div>
               <div class="kpi-value" id="kpi-top" style="font-size:16px;">—</div>
             </div>
           </div>
           <div class="kpi-card">
-            <div class="kpi-icon" style="background:rgba(216,90,48,0.12);">💰</div>
+            <div class="kpi-icon" style="background:rgba(239, 68, 68, 0.12);">💰</div>
             <div>
               <div class="kpi-label">Revenue Today</div>
               <div class="kpi-value" id="kpi-revenue">₹0</div>
             </div>
           </div>
           <div class="kpi-card">
-            <div class="kpi-icon" style="background:rgba(234,179,8,0.12);">📈</div>
+            <div class="kpi-icon" style="background:rgba(245, 158, 11, 0.12);">📈</div>
             <div>
               <div class="kpi-label">Profit Today</div>
               <div class="kpi-value" id="kpi-profit">₹0</div>
             </div>
           </div>
           <!-- Creator Only KPI -->
-          <div id="creator-kpi" class="kpi-card" style="display:none; border-color:var(--green); background:rgba(29,158,117,0.05);">
+          <div id="creator-kpi" class="kpi-card" style="display:none; border-color:var(--green); background:rgba(59, 130, 246, 0.05);">
             <div class="kpi-icon" style="background:var(--green); color:white;">👥</div>
             <div>
               <div class="kpi-label">Total App Users</div>
@@ -536,8 +536,8 @@
             <canvas id="barChart"></canvas>
           </div>
           <div class="bar-legend">
-            <span><i style="background:#1D9E75;"></i> Revenue</span>
-            <span><i style="background:#7c6af7;"></i> Profit</span>
+            <span><i style="background:#3B82F6;"></i> Revenue</span>
+            <span><i style="background:#6366F1;"></i> Profit</span>
           </div>
         </div>
         <div class="chart-card">
@@ -887,7 +887,7 @@
       </div>
       <div class="csv-modal-footer">
         <div style="display: flex; flex-direction: column;">
-          <div id="bulk-total-profit" style="font-size: 18px; font-weight: 800; color: #7c6af7;">Total Profit: ₹0</div>
+          <div id="bulk-total-profit" style="font-size: 18px; font-weight: 800; color: #6366F1;">Total Profit: ₹0</div>
           <div id="bulk-count-label" style="font-size: 12px; color: var(--muted);">0 items selected for entry</div>
         </div>
         <div class="csv-footer-actions">

@@ -11,44 +11,44 @@
 
 /* ---------- Design Tokens ---------- */
 :root {
-  --green:       #1D9E75;
-  --green-dark:  #0F6E56;
-  --green-light: #E1F5EE;
-  --red:         #D85A30;
-  --red-light:   #FAECE7;
+  --green:       #3B82F6;
+  --green-dark:  #2563EB;
+  --green-light: #EFF6FF;
+  --red:         #EF4444;
+  --red-light:   #FEF2F2;
 
   /* Surfaces */
-  --bg:          #0f1117;
-  --card-bg:     #1a1d27;
-  --card-border: #2a2d3a;
-  --text:        #f0f0f0;
-  --muted:       #6b7280;
-  --input-bg:    #12141c;
+  --bg:          #09090b;
+  --card-bg:     #18181b;
+  --card-border: #27272a;
+  --text:        #fafafa;
+  --muted:       #a1a1aa;
+  --input-bg:    #09090b;
 
   /* Elevation surfaces */
-  --surface-0: rgba(11,  14,  22,  0.88);
-  --surface-1: rgba(26,  29,  39,  0.78);
-  --surface-2: rgba(18,  20,  28,  0.92);
+  --surface-0: rgba(9, 9, 11, 0.88);
+  --surface-1: rgba(24, 24, 27, 0.78);
+  --surface-2: rgba(39, 39, 42, 0.92);
 
   /* Shadows */
-  --shadow-lg: 0 24px 80px rgba(0,0,0,0.34);
-  --shadow-md: 0 18px 44px rgba(0,0,0,0.22);
-  --shadow-sm: 0 10px 24px rgba(0,0,0,0.14);
+  --shadow-lg: 0 24px 80px rgba(0,0,0,0.5);
+  --shadow-md: 0 12px 30px rgba(0,0,0,0.4);
+  --shadow-sm: 0 4px 14px rgba(0,0,0,0.2);
 
   /* Radii */
-  --radius-lg: 24px;
-  --radius-md: 18px;
-  --radius-sm: 14px;
+  --radius-lg: 16px;
+  --radius-md: 12px;
+  --radius-sm: 8px;
 }
 
 /* ---------- Light-mode overrides ---------- */
 body.light {
-  --bg:         #f4f6f3;
+  --bg:         #fafafa;
   --card-bg:    #ffffff;
-  --card-border:#e5e7eb;
-  --text:       #1a1a1a;
-  --muted:      #6b7280;
-  --input-bg:   #fafafa;
+  --card-border:#e4e4e7;
+  --text:       #09090b;
+  --muted:      #71717a;
+  --input-bg:   #f4f4f5;
 
   --surface-0: rgba(255,255,255,0.86);
   --surface-1: rgba(255,255,255,0.82);
@@ -60,16 +60,14 @@ body.light {
    ============================================================ */
 body {
   font-family: 'Plus Jakarta Sans', 'Segoe UI', sans-serif;
-  background: var(--bg);
+  background-color: var(--bg);
   min-height: 100vh;
   line-height: 1.5;
   padding: 28px 18px 64px;
   color: var(--text);
   background-image:
-    radial-gradient(circle at   0%   0%, rgba(29,158,117,0.18), transparent 26%),
-    radial-gradient(circle at 100%  12%, rgba(124,106,247,0.14), transparent 24%),
-    radial-gradient(circle at 100% 100%, rgba(216,90,48,0.12),   transparent 30%),
-    linear-gradient(180deg, rgba(255,255,255,0.015), rgba(255,255,255,0));
+    radial-gradient(circle at 50% 0%, rgba(59, 130, 246, 0.08), transparent 50%),
+    radial-gradient(circle at 100% 0%, rgba(255, 255, 255, 0.02), transparent 40%);
 }
 
 /* Font stack for numeric / heading elements */
@@ -81,6 +79,7 @@ h1,
 .date-stat-value,
 #best-day {
   font-family: 'Space Grotesk', 'Plus Jakarta Sans', sans-serif;
+  color: var(--text);
 }
 
 /* ============================================================
@@ -182,8 +181,8 @@ h1,
   align-self: flex-end;
   padding: 4px 10px;
   border-radius: 999px;
-  background: rgba(29,158,117,0.1);
-  border: 1px solid rgba(29,158,117,0.14);
+  background: rgba(59, 130, 246, 0.1);
+  border: 1px solid rgba(59, 130, 246, 0.14);
 }
 
 /* ============================================================
@@ -280,7 +279,7 @@ h1,
 }
 
 .profile-dropdown-item.danger {
-  color: #d85a30;
+  color: #EF4444;
 }
 
 .profile-dropdown-divider {
@@ -330,7 +329,7 @@ h1,
   background:
     radial-gradient(circle at 50% 36%, rgba(255,255,255,0.92) 0 16%, transparent 17%),
     radial-gradient(circle at 50% 92%, rgba(255,255,255,0.92) 0 22%, transparent 23%),
-    linear-gradient(135deg, #1d9e75, #378add);
+    linear-gradient(135deg, #3B82F6, #378add);
   box-shadow: inset 0 1px 0 rgba(255,255,255,0.3);
 }
 
@@ -350,8 +349,8 @@ body.light .user-badge {
   justify-content: center;
   padding: 24px;
   background:
-    radial-gradient(circle at top    left,  rgba(29,158,117,0.22), transparent 32%),
-    radial-gradient(circle at bottom right, rgba(216,90,48,0.18),  transparent 32%),
+    radial-gradient(circle at top    left,  rgba(59, 130, 246, 0.22), transparent 32%),
+    radial-gradient(circle at bottom right, rgba(239, 68, 68, 0.18),  transparent 32%),
     linear-gradient(180deg, rgba(5,8,14,0.84), rgba(8,10,18,0.94));
   backdrop-filter: blur(14px);
   z-index: 10000;
@@ -373,7 +372,7 @@ body.light .user-badge {
   align-items: center;
   padding: 6px 12px;
   border-radius: 999px;
-  background: rgba(29,158,117,0.12);
+  background: rgba(59, 130, 246, 0.12);
   color: var(--green);
   font-size: 11px;
   font-weight: 700;
@@ -423,7 +422,7 @@ body.light .user-badge {
 .auth-form input:focus {
   transform: translateY(-1px);
   border-color: var(--green);
-  box-shadow: 0 0 0 4px rgba(29,158,117,0.14);
+  box-shadow: 0 0 0 4px rgba(59, 130, 246, 0.14);
 }
 
 .auth-form button {
@@ -437,7 +436,7 @@ body.light .user-badge {
   font-size: 14px;
   font-weight: 700;
   cursor: pointer;
-  box-shadow: 0 12px 30px rgba(29,158,117,0.24);
+  box-shadow: 0 12px 30px rgba(59, 130, 246, 0.24);
   transition: transform 180ms ease, box-shadow 220ms ease;
 }
 
@@ -517,15 +516,19 @@ body.light .user-badge {
   opacity: 0.07;
 }
 
-.income-card::before  { background: #1D9E75; }
-.expense-card::before { background: #D85A30; }
-.profit-card::before  { background: #7c6af7; }
+.income-card::before  { background: #3B82F6; }
+.expense-card::before { background: #EF4444; }
+.profit-card::before  { background: #6366F1; }
 
 .card:hover {
-  transform: translateY(-4px);
-  border-color: rgba(255,255,255,0.16);
-  box-shadow: var(--shadow-lg);
+  transform: translateY(-6px) scale(1.02);
+  border-color: rgba(255,255,255,0.25);
+  box-shadow: 0 24px 50px -12px rgba(0,0,0,0.5);
 }
+
+.income-card:hover { box-shadow: 0 24px 50px -12px rgba(0,0,0,0.6); }
+.expense-card:hover { box-shadow: 0 24px 50px -12px rgba(0,0,0,0.6); }
+.profit-card:hover { box-shadow: 0 24px 50px -12px rgba(0,0,0,0.6); }
 
 .card p {
   font-size: 11px;
@@ -543,12 +546,10 @@ body.light .user-badge {
   line-height: 1;
 }
 
-.income-card  h2 { color: #1D9E75; }
-.expense-card h2 { color: #D85A30; }
-
-/* FIX: profit card text is theme-aware */
-.profit-card h2 { color: #f5f7fb; }
-body.light .profit-card h2 { color: #1f2937; }
+.income-card  h2 { color: #10B981; }
+.expense-card h2 { color: #EF4444; }
+.profit-card h2 { color: #6366F1; }
+body.light .profit-card h2 { color: #4F46E5; }
 
 /* ============================================================
    GOAL TRACKER
@@ -578,7 +579,7 @@ body.light .profit-card h2 { color: #1f2937; }
   position: absolute;
   top: 0; left: 0; right: 0;
   height: 2px;
-  background: linear-gradient(90deg, #eab308, transparent);
+  background: linear-gradient(90deg, #F59E0B, transparent);
 }
 
 .goal-tracker:hover {
@@ -614,8 +615,8 @@ body.light .profit-card h2 { color: #1f2937; }
   height: 100%;
   width: 0%;
   border-radius: 4px;
-  background: #D85A30;
-  box-shadow: 0 0 18px rgba(216,90,48,0.35);
+  background: #EF4444;
+  box-shadow: 0 0 18px rgba(239, 68, 68, 0.35);
   transition: width 0.5s ease, background 0.3s ease;
 }
 
@@ -926,7 +927,7 @@ body.light .profit-card h2 { color: #1f2937; }
 .form-section select:focus {
   transform: translateY(-1px);
   border-color: var(--green);
-  box-shadow: 0 0 0 4px rgba(29,158,117,0.14);
+  box-shadow: 0 0 0 4px rgba(59, 130, 246, 0.14);
 }
 
 .form-section select option { background: #1a1d27; }
@@ -944,14 +945,14 @@ body.light .profit-card h2 { color: #1f2937; }
   font-weight: 700;
   cursor: pointer;
   letter-spacing: 0.03em;
-  box-shadow: 0 4px 20px rgba(29,158,117,0.3);
+  box-shadow: 0 4px 20px rgba(59, 130, 246, 0.3);
   transition: background 220ms ease, transform 180ms ease, box-shadow 220ms ease;
 }
 
 .form-section button:hover {
   background: var(--green-dark);
   transform: translateY(-2px);
-  box-shadow: 0 4px 24px rgba(29,158,117,0.45);
+  box-shadow: 0 4px 24px rgba(59, 130, 246, 0.45);
 }
 
 .form-section button:active { transform: scale(0.97); }
@@ -1022,7 +1023,7 @@ body.light .profit-card h2 { color: #1f2937; }
 .search-group input:focus {
   transform: translateY(-1px);
   border-color: var(--green);
-  box-shadow: 0 0 0 4px rgba(29,158,117,0.14);
+  box-shadow: 0 0 0 4px rgba(59, 130, 246, 0.14);
 }
 
 .search-bar select {
@@ -1043,7 +1044,7 @@ body.light .profit-card h2 { color: #1f2937; }
 .search-bar select:focus {
   transform: translateY(-1px);
   border-color: var(--green);
-  box-shadow: 0 0 0 4px rgba(29,158,117,0.14);
+  box-shadow: 0 0 0 4px rgba(59, 130, 246, 0.14);
 }
 
 .search-bar select option { background: #1a1d27; }
@@ -1078,7 +1079,7 @@ body.light .profit-card h2 { color: #1f2937; }
   background: var(--green);
   color: #fff;
   border-color: var(--green);
-  box-shadow: 0 2px 12px rgba(29,158,117,0.3);
+  box-shadow: 0 2px 12px rgba(59, 130, 246, 0.3);
 }
 
 /* ============================================================
@@ -1108,7 +1109,7 @@ body.light .profit-card h2 { color: #1f2937; }
   position: absolute;
   inset: 0 0 auto 0;
   height: 3px;
-  background: linear-gradient(90deg, var(--green), rgba(124,106,247,0.9), rgba(234,179,8,0.85));
+  background: linear-gradient(90deg, var(--green), rgba(99, 102, 241, 0.9), rgba(245, 158, 11, 0.85));
   z-index: 2;
   pointer-events: none;
 }
@@ -1127,7 +1128,7 @@ table {
 
 thead {
   background:
-    linear-gradient(180deg, rgba(29,158,117,0.18), rgba(124,106,247,0.08)),
+    linear-gradient(180deg, rgba(59, 130, 246, 0.18), rgba(99, 102, 241, 0.08)),
     linear-gradient(180deg, rgba(255,255,255,0.05), rgba(255,255,255,0.01));
 }
 
@@ -1144,7 +1145,7 @@ th {
   text-transform: uppercase;
   letter-spacing: 0.14em;
   color: color-mix(in srgb, var(--text) 72%, var(--green) 28%);
-  border-bottom: 1px solid rgba(29,158,117,0.22);
+  border-bottom: 1px solid rgba(59, 130, 246, 0.22);
   font-weight: 700;
   box-shadow: inset 0 -1px 0 rgba(255,255,255,0.03);
 }
@@ -1196,22 +1197,22 @@ tbody tr:hover {
 }
 
 /* Type-coloured amount column */
-tr.income  td:nth-child(5) { color: #1D9E75; font-weight: 700; }
-tr.expense td:nth-child(5) { color: #D85A30; font-weight: 700; }
+tr.income  td:nth-child(5) { color: #3B82F6; font-weight: 700; }
+tr.expense td:nth-child(5) { color: #EF4444; font-weight: 700; }
 
 /* Row state highlights */
 .row-low {
-  background: rgba(216,90,48,0.04);
+  background: rgba(239, 68, 68, 0.04);
 }
 .row-low:hover {
-  background: rgba(216,90,48,0.08) !important;
+  background: rgba(239, 68, 68, 0.08) !important;
 }
 
 .row-dead {
-  background: rgba(234,179,8,0.03);
+  background: rgba(245, 158, 11, 0.03);
 }
 .row-dead:hover {
-  background: rgba(234,179,8,0.07) !important;
+  background: rgba(245, 158, 11, 0.07) !important;
 }
 
 /* ---------- Badges ---------- */
@@ -1226,10 +1227,10 @@ tr.expense td:nth-child(5) { color: #D85A30; font-weight: 700; }
   box-shadow: inset 0 1px 0 rgba(255,255,255,0.18);
 }
 
-.badge.income  { background: rgba(29,158,117,0.15);  color: #1D9E75; }
-.badge.expense { background: rgba(216,90,48,0.15);   color: #D85A30; }
-.badge.warning { background: rgba(234,179,8,0.15);   color: #eab308; }
-.badge.danger  { background: rgba(216,90,48,0.15);   color: #D85A30; }
+.badge.income  { background: rgba(59, 130, 246, 0.15);  color: #3B82F6; }
+.badge.expense { background: rgba(239, 68, 68, 0.15);   color: #EF4444; }
+.badge.warning { background: rgba(245, 158, 11, 0.15);   color: #F59E0B; }
+.badge.danger  { background: rgba(239, 68, 68, 0.15);   color: #EF4444; }
 
 /* Inline delete button inside cells */
 td button {
@@ -1245,7 +1246,7 @@ td button {
 
 td button:hover {
   color: var(--red);
-  background: rgba(216,90,48,0.12);
+  background: rgba(239, 68, 68, 0.12);
 }
 
 .empty {
@@ -1322,13 +1323,13 @@ td button:hover {
   font-weight: 700;
   cursor: pointer;
   margin-left: 6px;
-  box-shadow: 0 2px 10px rgba(29,158,117,0.25);
+  box-shadow: 0 2px 10px rgba(59, 130, 246, 0.25);
   letter-spacing: 0.03em;
 }
 
 .sell-btn:hover {
   background: var(--green-dark);
-  box-shadow: 0 2px 16px rgba(29,158,117,0.4);
+  box-shadow: 0 2px 16px rgba(59, 130, 246, 0.4);
 }
 
 .sell-btn:disabled {
@@ -1343,8 +1344,8 @@ td button:hover {
   height: 32px;
   padding: 0 12px;
   background: transparent;
-  border: 1px solid rgba(124,106,247,0.4);
-  color: #7c6af7;
+  border: 1px solid rgba(99, 102, 241, 0.4);
+  color: #6366F1;
   font-size: 12px;
   font-weight: 600;
   cursor: pointer;
@@ -1353,8 +1354,8 @@ td button:hover {
 }
 
 .restock-btn:hover {
-  background: rgba(124,106,247,0.1);
-  border-color: #7c6af7;
+  background: rgba(99, 102, 241, 0.1);
+  border-color: #6366F1;
 }
 
 /* Edit */
@@ -1379,8 +1380,8 @@ td button:hover {
   height: 32px;
   padding: 0 14px;
   background: transparent;
-  border: 1px solid rgba(29,158,117,0.3);
-  color: #1D9E75;
+  border: 1px solid rgba(59, 130, 246, 0.3);
+  color: #3B82F6;
   font-size: 12px;
   font-weight: 600;
   cursor: pointer;
@@ -1388,7 +1389,7 @@ td button:hover {
 }
 
 .reviewed-btn:hover {
-  background: rgba(29,158,117,0.1);
+  background: rgba(59, 130, 246, 0.1);
   border-color: var(--green);
 }
 
@@ -1403,40 +1404,40 @@ td button:hover {
 
 .csv-btn {
   background: transparent;
-  border-color: rgba(29,158,117,0.4);
-  color: #1D9E75;
+  border-color: rgba(59, 130, 246, 0.4);
+  color: #3B82F6;
 }
 
 .csv-btn:hover {
-  background: rgba(29,158,117,0.1);
+  background: rgba(59, 130, 246, 0.1);
   border-color: var(--green);
 }
 
 .pdf-btn {
   background: transparent;
-  border-color: rgba(124,106,247,0.4);
-  color: #7c6af7;
+  border-color: rgba(99, 102, 241, 0.4);
+  color: #6366F1;
 }
 
 .pdf-btn:hover {
-  background: rgba(124,106,247,0.1);
-  border-color: #7c6af7;
+  background: rgba(99, 102, 241, 0.1);
+  border-color: #6366F1;
 }
 
 /* Clear */
 .clear-btn {
   padding: 8px 16px;
   background: transparent;
-  border: 1px solid rgba(216,90,48,0.4);
-  color: #D85A30;
+  border: 1px solid rgba(239, 68, 68, 0.4);
+  color: #EF4444;
   font-size: 13px;
   font-weight: 600;
   cursor: pointer;
 }
 
 .clear-btn:hover {
-  background: rgba(216,90,48,0.1);
-  border-color: #D85A30;
+  background: rgba(239, 68, 68, 0.1);
+  border-color: #EF4444;
 }
 
 /* Bulk Sell Specific Prominence */
@@ -1449,14 +1450,14 @@ td button:hover {
   font-size: 14px;
   font-weight: 700;
   cursor: pointer;
-  box-shadow: 0 4px 14px rgba(29, 158, 117, 0.35);
+  box-shadow: 0 4px 14px rgba(59, 130, 246,  0.35);
   transition: transform 180ms ease, background 220ms ease, box-shadow 220ms ease;
 }
 
 .bulk-sell-btn:hover {
   background: var(--green-dark);
   transform: translateY(-2px);
-  box-shadow: 0 6px 20px rgba(29, 158, 117, 0.5);
+  box-shadow: 0 6px 20px rgba(59, 130, 246,  0.5);
 }
 
 /* Bulk Sell Items */
@@ -1482,7 +1483,7 @@ td button:hover {
 .bulk-item-row input:focus {
   border-color: var(--green);
   background: rgba(255,255,255,0.05);
-  box-shadow: 0 0 0 2px rgba(29,158,117,0.15);
+  box-shadow: 0 0 0 2px rgba(59, 130, 246, 0.15);
 }
 
 /* ============================================================
@@ -1492,8 +1493,8 @@ td button:hover {
   display: flex;
   align-items: flex-start;
   gap: 14px;
-  background: rgba(216,90,48,0.1);
-  border: 1px solid rgba(216,90,48,0.3);
+  background: rgba(239, 68, 68, 0.1);
+  border: 1px solid rgba(239, 68, 68, 0.3);
   border-radius: 14px;
   padding: 16px 20px;
   margin-bottom: 24px;
@@ -1508,7 +1509,7 @@ td button:hover {
 .restock-title {
   font-size: 13px;
   font-weight: 700;
-  color: #D85A30;
+  color: #EF4444;
   text-transform: uppercase;
   letter-spacing: 0.07em;
   margin-bottom: 8px;
@@ -1521,9 +1522,9 @@ td button:hover {
 }
 
 .restock-tag {
-  background: rgba(216,90,48,0.12);
-  color: #D85A30;
-  border: 1px solid rgba(216,90,48,0.25);
+  background: rgba(239, 68, 68, 0.12);
+  color: #EF4444;
+  border: 1px solid rgba(239, 68, 68, 0.25);
   border-radius: 20px;
   padding: 4px 12px;
   font-size: 12px;
@@ -1531,12 +1532,12 @@ td button:hover {
 }
 
 /* Expiry variant */
-.expiry-alert  { background: rgba(234,179,8,0.1); border-color: rgba(234,179,8,0.28); }
-.expiry-title  { color: #eab308; }
+.expiry-alert  { background: rgba(245, 158, 11, 0.1); border-color: rgba(245, 158, 11, 0.28); }
+.expiry-title  { color: #F59E0B; }
 .expiry-tag {
-  background: rgba(234,179,8,0.12);
-  color: #eab308;
-  border-color: rgba(234,179,8,0.24);
+  background: rgba(245, 158, 11, 0.12);
+  color: #F59E0B;
+  border-color: rgba(245, 158, 11, 0.24);
 }
 
 /* ============================================================
@@ -1555,9 +1556,9 @@ td button:hover {
   margin-bottom: 14px;
   padding: 10px 16px;
   border-radius: 999px;
-  border: 1px solid rgba(29,158,117,0.18);
+  border: 1px solid rgba(59, 130, 246, 0.18);
   background:
-    linear-gradient(135deg, rgba(29,158,117,0.16), rgba(124,106,247,0.08)),
+    linear-gradient(135deg, rgba(59, 130, 246, 0.16), rgba(99, 102, 241, 0.08)),
     rgba(255,255,255,0.02);
   box-shadow:
     inset 0 1px 0 rgba(255,255,255,0.08),
@@ -1571,7 +1572,7 @@ td button:hover {
   height: 10px;
   background: radial-gradient(circle, #7ef0c8 0 35%, var(--green) 36% 100%);
   border-radius: 999px;
-  box-shadow: 0 0 0 6px rgba(29,158,117,0.12);
+  box-shadow: 0 0 0 6px rgba(59, 130, 246, 0.12);
   flex: 0 0 auto;
 }
 
@@ -1581,7 +1582,7 @@ td button:hover {
 
 body.light .section-title {
   background:
-    linear-gradient(135deg, rgba(29,158,117,0.12), rgba(124,106,247,0.06)),
+    linear-gradient(135deg, rgba(59, 130, 246, 0.12), rgba(99, 102, 241, 0.06)),
     rgba(255,255,255,0.9);
   box-shadow:
     inset 0 1px 0 rgba(255,255,255,0.65),
@@ -1597,8 +1598,8 @@ body.light .section-title {
   justify-content: center;
   width: 20px;
   height: 20px;
-  background: rgba(216,90,48,0.2);
-  color: #D85A30;
+  background: rgba(239, 68, 68, 0.2);
+  color: #EF4444;
   border-radius: 50%;
   font-size: 11px;
   font-weight: 700;
@@ -1696,9 +1697,9 @@ body.light .section-title {
   background: rgba(255,255,255,0.18);
 }
 
-.range-insight-card.accent-green::before  { background: linear-gradient(180deg, #1D9E75, #65d6b0); }
-.range-insight-card.accent-violet::before { background: linear-gradient(180deg, #7c6af7, #a597ff); }
-.range-insight-card.accent-amber::before  { background: linear-gradient(180deg, #eab308, #f8d85d); }
+.range-insight-card.accent-green::before  { background: linear-gradient(180deg, #3B82F6, #65d6b0); }
+.range-insight-card.accent-violet::before { background: linear-gradient(180deg, #6366F1, #a597ff); }
+.range-insight-card.accent-amber::before  { background: linear-gradient(180deg, #F59E0B, #f8d85d); }
 .range-insight-card.accent-slate::before  { background: linear-gradient(180deg, #378add, #78b6ff); }
 
 .range-insight-card.empty-state { grid-column: 1 / -1; }
@@ -1739,7 +1740,7 @@ body.light .section-title {
   padding: 18px 20px;
   border: 1px solid rgba(255,255,255,0.08);
   border-radius: var(--radius-md);
-  background: linear-gradient(135deg, rgba(29,158,117,0.09), rgba(124,106,247,0.08)), var(--surface-1);
+  background: linear-gradient(135deg, rgba(59, 130, 246, 0.09), rgba(99, 102, 241, 0.08)), var(--surface-1);
   box-shadow: var(--shadow-sm);
 }
 
@@ -1812,9 +1813,9 @@ body.light .section-title {
 
 .workspace-nav-btn.active {
   color: #f7fffb;
-  border-color: rgba(29,158,117,0.28);
-  background: linear-gradient(135deg, rgba(29,158,117,0.22), rgba(29,158,117,0.08));
-  box-shadow: 0 12px 24px rgba(29,158,117,0.14);
+  border-color: rgba(59, 130, 246, 0.28);
+  background: linear-gradient(135deg, rgba(59, 130, 246, 0.22), rgba(59, 130, 246, 0.08));
+  box-shadow: 0 12px 24px rgba(59, 130, 246, 0.14);
 }
 
 /* ---------- Toggle buttons ---------- */
@@ -1838,15 +1839,15 @@ body.light .section-title {
 .workspace-toggle-btn:hover,
 .feature-panel-close:hover {
   transform: translateY(-1px);
-  border-color: rgba(29,158,117,0.34);
-  background: rgba(29,158,117,0.12);
+  border-color: rgba(59, 130, 246, 0.34);
+  background: rgba(59, 130, 246, 0.12);
 }
 
 .workspace-toggle-btn.active {
-  background: linear-gradient(135deg, rgba(29,158,117,0.2), rgba(29,158,117,0.1));
-  border-color: rgba(29,158,117,0.42);
+  background: linear-gradient(135deg, rgba(59, 130, 246, 0.2), rgba(59, 130, 246, 0.1));
+  border-color: rgba(59, 130, 246, 0.42);
   color: #8df0ca;
-  box-shadow: 0 14px 28px rgba(29,158,117,0.16);
+  box-shadow: 0 14px 28px rgba(59, 130, 246, 0.16);
 }
 
 /* ---------- Feature panels ---------- */
@@ -1928,7 +1929,7 @@ body.light .section-title {
 }
 
 .toast-success { background: linear-gradient(135deg, rgba(22,163,74,0.94),   rgba(21,128,61,0.92));   }
-.toast-error   { background: linear-gradient(135deg, rgba(216,90,48,0.96),   rgba(180,57,18,0.92));   }
+.toast-error   { background: linear-gradient(135deg, rgba(239, 68, 68, 0.96),   rgba(180,57,18,0.92));   }
 .toast-info    { background: linear-gradient(135deg, rgba(109,40,217,0.96),  rgba(76,29,149,0.92));   }
 
 .toast-icon {
@@ -2059,7 +2060,7 @@ body.stock-only #toggle-stock {
   background: linear-gradient(135deg, var(--green), var(--green-dark)) !important;
   color: white !important;
   border-color: var(--green) !important;
-  box-shadow: 0 8px 24px rgba(29,158,117,0.3) !important;
+  box-shadow: 0 8px 24px rgba(59, 130, 246, 0.3) !important;
 }
 
 body.stock-only .workspace-nav-btn:not(#toggle-stock) {
@@ -2180,8 +2181,8 @@ BULK CSV IMPORT MODAL
   inset: 0;
   z-index: 5000;
   background:
-    radial-gradient(circle at 20% 20%, rgba(29,158,117,0.14), transparent 40%),
-    radial-gradient(circle at 80% 80%, rgba(124,106,247,0.12), transparent 40%),
+    radial-gradient(circle at 20% 20%, rgba(59, 130, 246, 0.14), transparent 40%),
+    radial-gradient(circle at 80% 80%, rgba(99, 102, 241, 0.12), transparent 40%),
     rgba(6, 8, 14, 0.82);
   backdrop-filter: blur(12px);
   display: flex;
@@ -2210,7 +2211,7 @@ BULK CSV IMPORT MODAL
   border: 1px solid rgba(255,255,255,0.10);
   border-radius: 24px;
   box-shadow:
-    0 0 0 1px rgba(29,158,117,0.12),
+    0 0 0 1px rgba(59, 130, 246, 0.12),
     0 32px 80px rgba(0,0,0,0.55),
     0 8px 24px rgba(0,0,0,0.3);
   overflow: hidden;
@@ -2276,9 +2277,9 @@ BULK CSV IMPORT MODAL
 }
 
 .csv-modal-close:hover {
-  background: rgba(216,90,48,0.15);
-  border-color: rgba(216,90,48,0.4);
-  color: #D85A30;
+  background: rgba(239, 68, 68, 0.15);
+  border-color: rgba(239, 68, 68, 0.4);
+  color: #EF4444;
 }
 
 /* ── Modal body (scrollable) ────────────────────────────── */
@@ -2290,12 +2291,12 @@ BULK CSV IMPORT MODAL
   flex-direction: column;
   gap: 20px;
   scrollbar-width: thin;
-  scrollbar-color: rgba(29,158,117,0.3) transparent;
+  scrollbar-color: rgba(59, 130, 246, 0.3) transparent;
 }
 
 .csv-modal-body::-webkit-scrollbar { width: 5px; }
 .csv-modal-body::-webkit-scrollbar-track { background: transparent; }
-.csv-modal-body::-webkit-scrollbar-thumb { background: rgba(29,158,117,0.3); border-radius: 99px; }
+.csv-modal-body::-webkit-scrollbar-thumb { background: rgba(59, 130, 246, 0.3); border-radius: 99px; }
 
 /* ── Step indicator ─────────────────────────────────────── */
 .csv-steps {
@@ -2318,7 +2319,7 @@ BULK CSV IMPORT MODAL
 }
 
 .csv-step.active { color: var(--green); }
-.csv-step.done   { color: rgba(29,158,117,0.6); }
+.csv-step.done   { color: rgba(59, 130, 246, 0.6); }
 
 .csv-step-dot {
   width: 24px;
@@ -2335,11 +2336,11 @@ BULK CSV IMPORT MODAL
 }
 
 .csv-step.active .csv-step-dot {
-  background: rgba(29,158,117,0.18);
+  background: rgba(59, 130, 246, 0.18);
 }
 
 .csv-step.done .csv-step-dot {
-  background: rgba(29,158,117,0.15);
+  background: rgba(59, 130, 246, 0.15);
 }
 
 .csv-step-line {
@@ -2352,12 +2353,12 @@ BULK CSV IMPORT MODAL
 
 /* ── Drop zone ──────────────────────────────────────────── */
 .csv-drop-zone {
-  border: 2px dashed rgba(29,158,117,0.3);
+  border: 2px dashed rgba(59, 130, 246, 0.3);
   border-radius: 18px;
   padding: 40px 32px;
   text-align: center;
   cursor: pointer;
-  background: rgba(29,158,117,0.04);
+  background: rgba(59, 130, 246, 0.04);
   transition:
     border-color 200ms ease,
     background   200ms ease,
@@ -2370,20 +2371,20 @@ BULK CSV IMPORT MODAL
   content: '';
   position: absolute;
   inset: 0;
-  background: radial-gradient(circle at 50% 0%, rgba(29,158,117,0.08), transparent 60%);
+  background: radial-gradient(circle at 50% 0%, rgba(59, 130, 246, 0.08), transparent 60%);
   pointer-events: none;
 }
 
 .csv-drop-zone:hover,
 .csv-drop-zone.drag-over {
   border-color: var(--green);
-  background: rgba(29,158,117,0.08);
+  background: rgba(59, 130, 246, 0.08);
   transform: scale(1.005);
 }
 
 .csv-drop-zone.drag-over {
   border-style: solid;
-  box-shadow: 0 0 0 4px rgba(29,158,117,0.14);
+  box-shadow: 0 0 0 4px rgba(59, 130, 246, 0.14);
 }
 
 .csv-drop-icon {
@@ -2418,8 +2419,8 @@ BULK CSV IMPORT MODAL
   margin-top: 16px;
   padding: 9px 20px;
   border-radius: 10px;
-  border: 1px solid rgba(29,158,117,0.4);
-  background: rgba(29,158,117,0.1);
+  border: 1px solid rgba(59, 130, 246, 0.4);
+  background: rgba(59, 130, 246, 0.1);
   color: var(--green);
   font-size: 13px;
   font-weight: 700;
@@ -2428,7 +2429,7 @@ BULK CSV IMPORT MODAL
 }
 
 .csv-file-btn:hover {
-  background: rgba(29,158,117,0.18);
+  background: rgba(59, 130, 246, 0.18);
   border-color: var(--green);
   transform: translateY(-1px);
 }
@@ -2461,7 +2462,7 @@ BULK CSV IMPORT MODAL
   border-radius: 50%;
   background: var(--green);
   display: inline-block;
-  box-shadow: 0 0 0 3px rgba(29,158,117,0.2);
+  box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.2);
 }
 
 .csv-paste-input {
@@ -2488,8 +2489,8 @@ BULK CSV IMPORT MODAL
   align-items: center;
   gap: 12px;
   padding: 12px 18px;
-  background: rgba(124,106,247,0.06);
-  border: 1px solid rgba(124,106,247,0.18);
+  background: rgba(99, 102, 241, 0.06);
+  border: 1px solid rgba(99, 102, 241, 0.18);
   border-radius: 12px;
   font-size: 13px;
   color: var(--muted);
@@ -2501,8 +2502,8 @@ BULK CSV IMPORT MODAL
   margin-left: auto;
   padding: 7px 16px;
   border-radius: 8px;
-  border: 1px solid rgba(124,106,247,0.4);
-  background: rgba(124,106,247,0.1);
+  border: 1px solid rgba(99, 102, 241, 0.4);
+  background: rgba(99, 102, 241, 0.1);
   color: #a597ff;
   font-size: 12px;
   font-weight: 700;
@@ -2512,7 +2513,7 @@ BULK CSV IMPORT MODAL
 }
 
 .csv-dl-btn:hover {
-  background: rgba(124,106,247,0.18);
+  background: rgba(99, 102, 241, 0.18);
   transform: translateY(-1px);
 }
 
@@ -2593,7 +2594,7 @@ BULK CSV IMPORT MODAL
 
 .csv-mapper-select:focus {
   border-color: var(--green);
-  background: rgba(29,158,117,0.08);
+  background: rgba(59, 130, 246, 0.08);
 }
 
 .csv-mapper-select option { background: #1a1d27; }
@@ -2603,7 +2604,7 @@ BULK CSV IMPORT MODAL
   width: 6px;
   height: 6px;
   border-radius: 50%;
-  background: #D85A30;
+  background: #EF4444;
   flex-shrink: 0;
 }
 
@@ -2622,11 +2623,11 @@ BULK CSV IMPORT MODAL
   overflow: auto;
   max-height: 280px;
   scrollbar-width: thin;
-  scrollbar-color: rgba(29,158,117,0.2) transparent;
+  scrollbar-color: rgba(59, 130, 246, 0.2) transparent;
 }
 
 .csv-preview-wrap::-webkit-scrollbar { width: 4px; height: 4px; }
-.csv-preview-wrap::-webkit-scrollbar-thumb { background: rgba(29,158,117,0.2); border-radius: 99px; }
+.csv-preview-wrap::-webkit-scrollbar-thumb { background: rgba(59, 130, 246, 0.2); border-radius: 99px; }
 
 .csv-preview-table {
   width: 100%;
@@ -2645,7 +2646,7 @@ BULK CSV IMPORT MODAL
   text-transform: uppercase;
   letter-spacing: 0.1em;
   color: color-mix(in srgb, var(--text) 70%, var(--green) 30%);
-  border-bottom: 1px solid rgba(29,158,117,0.2);
+  border-bottom: 1px solid rgba(59, 130, 246, 0.2);
   white-space: nowrap;
 }
 
@@ -2666,12 +2667,12 @@ BULK CSV IMPORT MODAL
 }
 
 /* Row state */
-.csv-row-ok   td:first-child { border-left: 3px solid rgba(29,158,117,0.7);  }
-.csv-row-warn td:first-child { border-left: 3px solid rgba(234,179,8,0.7);   }
-.csv-row-err  td:first-child { border-left: 3px solid rgba(216,90,48,0.8);   }
+.csv-row-ok   td:first-child { border-left: 3px solid rgba(59, 130, 246, 0.7);  }
+.csv-row-warn td:first-child { border-left: 3px solid rgba(245, 158, 11, 0.7);   }
+.csv-row-err  td:first-child { border-left: 3px solid rgba(239, 68, 68, 0.8);   }
 
-.csv-row-err { background: rgba(216,90,48,0.04); }
-.csv-row-warn { background: rgba(234,179,8,0.03); }
+.csv-row-err { background: rgba(239, 68, 68, 0.04); }
+.csv-row-warn { background: rgba(245, 158, 11, 0.03); }
 
 /* ── Validation summary bar ─────────────────────────────── */
 .csv-validation-bar {
@@ -2695,9 +2696,9 @@ BULK CSV IMPORT MODAL
   font-weight: 700;
 }
 
-.csv-val-chip.ok   { background: rgba(29,158,117,0.14); color: #1D9E75; border: 1px solid rgba(29,158,117,0.25); }
-.csv-val-chip.warn { background: rgba(234,179,8,0.12);  color: #eab308; border: 1px solid rgba(234,179,8,0.22); }
-.csv-val-chip.err  { background: rgba(216,90,48,0.12);  color: #D85A30; border: 1px solid rgba(216,90,48,0.22); }
+.csv-val-chip.ok   { background: rgba(59, 130, 246, 0.14); color: #3B82F6; border: 1px solid rgba(59, 130, 246, 0.25); }
+.csv-val-chip.warn { background: rgba(245, 158, 11, 0.12);  color: #F59E0B; border: 1px solid rgba(245, 158, 11, 0.22); }
+.csv-val-chip.err  { background: rgba(239, 68, 68, 0.12);  color: #EF4444; border: 1px solid rgba(239, 68, 68, 0.22); }
 
 .csv-val-detail {
   font-size: 12px;
@@ -2707,8 +2708,8 @@ BULK CSV IMPORT MODAL
 
 /* ── Error list ─────────────────────────────────────────── */
 .csv-error-list {
-  background: rgba(216,90,48,0.06);
-  border: 1px solid rgba(216,90,48,0.2);
+  background: rgba(239, 68, 68, 0.06);
+  border: 1px solid rgba(239, 68, 68, 0.2);
   border-radius: 12px;
   padding: 14px 18px;
   display: flex;
@@ -2729,7 +2730,7 @@ BULK CSV IMPORT MODAL
 
 .csv-error-item::before {
   content: '✕';
-  color: #D85A30;
+  color: #EF4444;
   font-weight: 800;
   flex-shrink: 0;
   margin-top: 1px;
@@ -2789,13 +2790,13 @@ BULK CSV IMPORT MODAL
   font-size: 13px;
   font-weight: 700;
   cursor: pointer;
-  box-shadow: 0 4px 18px rgba(29,158,117,0.35);
+  box-shadow: 0 4px 18px rgba(59, 130, 246, 0.35);
   transition: transform 160ms ease, box-shadow 200ms ease;
 }
 
 .csv-btn-primary:hover {
   transform: translateY(-2px);
-  box-shadow: 0 6px 24px rgba(29,158,117,0.45);
+  box-shadow: 0 6px 24px rgba(59, 130, 246, 0.45);
 }
 
 .csv-btn-primary:disabled {
@@ -2834,14 +2835,14 @@ BULK CSV IMPORT MODAL
   width: 72px;
   height: 72px;
   border-radius: 50%;
-  background: rgba(29,158,117,0.14);
-  border: 2px solid rgba(29,158,117,0.4);
+  background: rgba(59, 130, 246, 0.14);
+  border: 2px solid rgba(59, 130, 246, 0.4);
   display: flex;
   align-items: center;
   justify-content: center;
   font-size: 32px;
   animation: csvSuccessPop 0.5s cubic-bezier(0.34,1.56,0.64,1) both;
-  box-shadow: 0 0 0 0 rgba(29,158,117,0.3);
+  box-shadow: 0 0 0 0 rgba(59, 130, 246, 0.3);
   animation: csvSuccessPop 0.5s cubic-bezier(0.34,1.56,0.64,1) both, csvSuccessPulse 1.8s ease 0.5s infinite;
 }
 
@@ -2851,8 +2852,8 @@ BULK CSV IMPORT MODAL
 }
 
 @keyframes csvSuccessPulse {
-  0%, 100% { box-shadow: 0 0 0 0   rgba(29,158,117,0.3); }
-  50%      { box-shadow: 0 0 0 12px rgba(29,158,117,0);   }
+  0%, 100% { box-shadow: 0 0 0 0   rgba(59, 130, 246, 0.3); }
+  50%      { box-shadow: 0 0 0 12px rgba(59, 130, 246, 0);   }
 }
 
 .csv-success-title {
@@ -2889,8 +2890,8 @@ BULK CSV IMPORT MODAL
   padding: 0 16px;
   height: 36px;
   border-radius: 8px;
-  border: 1px solid rgba(29,158,117,0.4);
-  background: rgba(29,158,117,0.1);
+  border: 1px solid rgba(59, 130, 246, 0.4);
+  background: rgba(59, 130, 246, 0.1);
   color: var(--green);
   font-size: 13px;
   font-weight: 700;
@@ -2900,13 +2901,13 @@ BULK CSV IMPORT MODAL
 }
 
 .import-csv-btn:hover {
-  background: rgba(29,158,117,0.18);
+  background: rgba(59, 130, 246, 0.18);
   border-color: var(--green);
   transform: translateY(-1px);
 }
 
 .toast-warning {
-  background: linear-gradient(135deg, rgba(234,179,8,0.96), rgba(180,130,0,0.92));
+  background: linear-gradient(135deg, rgba(245, 158, 11, 0.96), rgba(180,130,0,0.92));
 }
 
 /* ============================================================
@@ -2921,7 +2922,7 @@ BULK CSV IMPORT MODAL
   justify-content: center;
   padding: 24px;
   background:
-    radial-gradient(circle at top left,    rgba(216,90,48,0.28), transparent 40%),
+    radial-gradient(circle at top left,    rgba(239, 68, 68, 0.28), transparent 40%),
     radial-gradient(circle at bottom right, rgba(180,30,30,0.22), transparent 40%),
     rgba(5, 8, 14, 0.88);
   backdrop-filter: blur(14px);
@@ -2936,13 +2937,13 @@ BULK CSV IMPORT MODAL
 .delete-acct-card {
   width: min(100%, 460px);
   background: var(--card-bg);
-  border: 1px solid rgba(216,90,48,0.25);
+  border: 1px solid rgba(239, 68, 68, 0.25);
   border-radius: var(--radius-lg);
   padding: 36px 32px 32px;
   box-shadow:
-    0 0 0 1px rgba(216,90,48,0.12),
+    0 0 0 1px rgba(239, 68, 68, 0.12),
     0 32px 80px rgba(0,0,0,0.5),
-    0 0 60px rgba(216,90,48,0.08);
+    0 0 60px rgba(239, 68, 68, 0.08);
   text-align: center;
   transform: scale(0.94) translateY(10px);
   transition: transform 280ms cubic-bezier(0.34,1.3,0.64,1);
@@ -2957,8 +2958,8 @@ BULK CSV IMPORT MODAL
   height: 68px;
   margin: 0 auto 16px;
   border-radius: 50%;
-  background: rgba(216,90,48,0.12);
-  border: 1.5px solid rgba(216,90,48,0.25);
+  background: rgba(239, 68, 68, 0.12);
+  border: 1.5px solid rgba(239, 68, 68, 0.25);
   display: flex;
   align-items: center;
   justify-content: center;
@@ -2967,8 +2968,8 @@ BULK CSV IMPORT MODAL
 }
 
 @keyframes deleteIconPulse {
-  0%, 100% { box-shadow: 0 0 0 0 rgba(216,90,48,0.20); }
-  50%       { box-shadow: 0 0 0 10px rgba(216,90,48,0); }
+  0%, 100% { box-shadow: 0 0 0 0 rgba(239, 68, 68, 0.20); }
+  50%       { box-shadow: 0 0 0 10px rgba(239, 68, 68, 0); }
 }
 
 .delete-acct-badge {
@@ -2976,8 +2977,8 @@ BULK CSV IMPORT MODAL
   align-items: center;
   padding: 4px 12px;
   border-radius: 999px;
-  background: rgba(216,90,48,0.12);
-  color: #d85a30;
+  background: rgba(239, 68, 68, 0.12);
+  color: #EF4444;
   font-size: 10px;
   font-weight: 800;
   letter-spacing: 0.12em;
@@ -3025,7 +3026,7 @@ BULK CSV IMPORT MODAL
   width: 100%;
   min-height: 46px;
   padding: 0 14px;
-  border: 1px solid rgba(216,90,48,0.22);
+  border: 1px solid rgba(239, 68, 68, 0.22);
   border-radius: 12px;
   font-size: 14px;
   color: var(--text);
@@ -3040,8 +3041,8 @@ BULK CSV IMPORT MODAL
 }
 
 .delete-acct-input:focus {
-  border-color: #d85a30;
-  box-shadow: 0 0 0 4px rgba(216,90,48,0.14);
+  border-color: #EF4444;
+  box-shadow: 0 0 0 4px rgba(239, 68, 68, 0.14);
 }
 
 .delete-acct-message {
@@ -3050,7 +3051,7 @@ BULK CSV IMPORT MODAL
   font-weight: 600;
 }
 
-.delete-acct-message.error { color: #d85a30; }
+.delete-acct-message.error { color: #EF4444; }
 .delete-acct-message.info  { color: var(--muted); }
 
 .delete-acct-actions {
@@ -3090,19 +3091,19 @@ BULK CSV IMPORT MODAL
   height: 44px;
   border: none;
   border-radius: 12px;
-  background: linear-gradient(135deg, #d85a30, #a83e1e);
+  background: linear-gradient(135deg, #EF4444, #a83e1e);
   color: #fff;
   font: inherit;
   font-size: 14px;
   font-weight: 700;
   cursor: pointer;
-  box-shadow: 0 8px 24px rgba(216,90,48,0.30);
+  box-shadow: 0 8px 24px rgba(239, 68, 68, 0.30);
   transition: transform 160ms ease, box-shadow 180ms ease, opacity 180ms ease;
 }
 
 .delete-acct-confirm:hover:not(:disabled) {
   transform: translateY(-2px);
-  box-shadow: 0 12px 32px rgba(216,90,48,0.40);
+  box-shadow: 0 12px 32px rgba(239, 68, 68, 0.40);
 }
 
 .delete-acct-confirm:disabled {
@@ -3169,7 +3170,7 @@ BULK CSV IMPORT MODAL
 
 .offline-banner.offline-banner-online {
   background: linear-gradient(135deg, rgba(15, 110, 86, 0.97), rgba(10, 78, 60, 0.95));
-  border-bottom-color: rgba(29, 158, 117, 0.4);
+  border-bottom-color: rgba(59, 130, 246,  0.4);
 }
 
 .offline-banner-icon {
@@ -3252,9 +3253,9 @@ BULK CSV IMPORT MODAL
 .save-status-saved {
   opacity: 1;
   transform: scale(1);
-  background: rgba(29, 158, 117, 0.12);
-  border-color: rgba(29, 158, 117, 0.25);
-  color: #1D9E75;
+  background: rgba(59, 130, 246,  0.12);
+  border-color: rgba(59, 130, 246,  0.25);
+  color: #3B82F6;
 }
 
 /* queued while offline */
@@ -3262,7 +3263,7 @@ BULK CSV IMPORT MODAL
   opacity: 1;
   transform: scale(1);
   background: rgba(180, 100, 0, 0.14);
-  border-color: rgba(234, 179, 8, 0.3);
+  border-color: rgba(245, 158, 11,  0.3);
   color: #d4a017;
 }
 
@@ -3270,9 +3271,9 @@ BULK CSV IMPORT MODAL
 .save-status-error {
   opacity: 1;
   transform: scale(1);
-  background: rgba(216, 90, 48, 0.12);
-  border-color: rgba(216, 90, 48, 0.25);
-  color: #D85A30;
+  background: rgba(239, 68, 68,  0.12);
+  border-color: rgba(239, 68, 68,  0.25);
+  color: #EF4444;
   animation: saveErrorShake 0.4s ease-in-out;
 }
 
@@ -3282,9 +3283,70 @@ body.light .offline-banner {
 }
 
 body.light .save-status-saved {
-  background: rgba(29, 158, 117, 0.1);
+  background: rgba(59, 130, 246,  0.1);
 }
 
 body.light .save-status-queued {
   background: rgba(234, 150, 0, 0.1);
+}
+
+/* ============================================================
+   PREMIUM UI/UX ENHANCEMENTS
+   ============================================================ */
+
+/* Global Button Micro-animations */
+button {
+  transition: transform 0.2s cubic-bezier(0.4, 0, 0.2, 1), box-shadow 0.2s cubic-bezier(0.4, 0, 0.2, 1), background-color 0.2s ease, filter 0.2s ease !important;
+}
+button:active {
+  transform: scale(0.96) translateY(2px) !important;
+  filter: brightness(0.9);
+}
+
+/* Table Row Staggered Fade-in */
+tbody tr {
+  animation: fadeInRow 0.4s ease-out forwards;
+  opacity: 0;
+}
+@keyframes fadeInRow {
+  0% { opacity: 0; transform: translateY(8px); }
+  100% { opacity: 1; transform: translateY(0); }
+}
+tbody tr:nth-child(1) { animation-delay: 0.05s; }
+tbody tr:nth-child(2) { animation-delay: 0.1s; }
+tbody tr:nth-child(3) { animation-delay: 0.15s; }
+tbody tr:nth-child(4) { animation-delay: 0.2s; }
+tbody tr:nth-child(5) { animation-delay: 0.25s; }
+tbody tr:nth-child(6) { animation-delay: 0.3s; }
+tbody tr:nth-child(n+7) { animation-delay: 0.35s; }
+
+/* Pulse animation for alerts */
+.restock-alert {
+  animation: pulseGlow 2s infinite !important;
+}
+@keyframes pulseGlow {
+  0% { box-shadow: 0 0 0 0 rgba(239, 68, 68,  0.4); }
+  70% { box-shadow: 0 0 0 10px rgba(239, 68, 68,  0); }
+  100% { box-shadow: 0 0 0 0 rgba(239, 68, 68,  0); }
+}
+
+/* Insight Cards Glow */
+.insight-card:hover {
+  transform: translateY(-6px) scale(1.02);
+  border-color: rgba(255,255,255,0.25);
+  box-shadow: 0 24px 50px -12px rgba(0,0,0,0.6);
+}
+
+/* Goal Tracker Lift */
+.goal-tracker:hover {
+  transform: translateY(-6px) scale(1.01);
+  border-color: rgba(255,255,255,0.25);
+  box-shadow: 0 24px 50px -12px rgba(0,0,0,0.6);
+}
+
+/* Kpi Cards & Chart Cards */
+.kpi-card:hover, .chart-card:hover {
+  transform: translateY(-4px) scale(1.01);
+  border-color: rgba(255,255,255,0.2);
+  box-shadow: 0 18px 40px -10px rgba(0,0,0,0.6);
 }
